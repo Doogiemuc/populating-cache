@@ -56,18 +56,9 @@ class PopulatingCache {
 	put(path, value, ttl = this.config.defaultTTLms) {
 		let cacheElem    = this.cacheData || {}
 		let metadataElem = this.cacheMetadata || {}
-
 		// If path is only one single string, then store value under that key.
-		if (typeof path === "string") {
-			if (path === "_id") console.warn("Are you sure that you want to store an _id in the cache?")
-			cacheElem[path] = value
-			metadataElem[path] = {
-				_ttl: Date.now() + ttl,
-				_type: typeof value
-			}
-			return this
-		}
-
+		if (typeof path === "string") path = [path]
+			
 		// Walk along path and insert intermediate objects as necessary
 		for (let i = 0; i < path.length; i++) {
 			let key, id, index
@@ -76,6 +67,7 @@ class PopulatingCache {
 			} else
 			// If paht[i] is a string, then extract key, id and index from it: "key", "key/id" or "key[index]"
 			if (typeof path[i] === "string") {
+				if (path[i] === "_id") console.warn("Are you sure that you want to store an _id in the cache?")
 				let match = path[i].match(pathElemRegEx)
 				if (match === null) return Promise.reject("Cannot PUT: invalid path element path["+i+"]="+path[i])
 				key   = match.groups.key
@@ -104,14 +96,14 @@ class PopulatingCache {
 			} else 
 			// If path[i] is an string that defines an array element "key[index]" then step into it.
 			if (key && index && id === undefined) {
+				if (!cacheElem[key]) cacheElem[key] = []				// create array in cache if necessary
+				if (!metadataElem[key]) metadataElem[key] = []
 				if (i < path.length-1) {
-					if (!cacheElem[key]) cacheElem[key] = []				// create array in cache if necessary
 					cacheElem    = cacheElem[key][index] || (cacheElem[key][index] = {})
-					if (!metadataElem[key]) metadataElem[key] = []
 					metadataElem = metadataElem[key][index] || (metadataElem[key][index] = {})
 				} else {
-					cacheElem[index] = value		// if this is the last element in the  path, then set the value as this array element 
-					metadataElem[index] = {
+					cacheElem[key][index] = value		// if this is the last element in the  path, then set the value as this array element 
+					metadataElem[key][index] = {
 						_ttl: Date.now() + ttl,
 						_type: typeof value
 					}
@@ -120,21 +112,28 @@ class PopulatingCache {
 			// If elem of path is "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
 			if (key && index === undefined && id) {
 				let cacheArray = cacheElem[key] || (cacheElem[key] = [])			// create array in cache if necessary
+				if (!metadataElem[key]) metadataElem[key] = []
 				let foundIndex = cacheArray.findIndex(e => e._id === id)
 				// If "key"-array does not have an element with that _id, then we add a new element to the array.
 				if (foundIndex === -1) {
-					cacheElem = {_id: id}
-					cacheArray.push(cacheElem)
+					cacheArray.push({_id: id})
 					foundIndex = cacheArray.length-1
 				}
 				if (i < path.length -1) {
-					cacheElem = cacheArray[foundIndex]
-					if (!metadataElem[key]) metadataElem[key] = []
+					cacheElem = cacheElem[key][foundIndex]
 					metadataElem = metadataElem[key][foundIndex] || (metadataElem[key][foundIndex] = {})
 				} else {
-					if (value && value._id && value._id !== id) console.warn("WARNING: ID mismatch! You are putting a value into the cache under path "+JSON.stringify(path)+". But your value._id="+value._id)
-					cacheArray[foundIndex] = value
-					metadataElem[foundIndex] = {
+					if (typeof value !== "object") value = { _id: id, value: value}
+					if (value && value._id && value._id !== id) {
+						console.warn("WARNING: ID mismatch! You tried to PUT a value under path "+JSON.stringify(path)+". But your value had _id="+value._id+". I corrected that.")
+						value._id = id
+					}
+					if (value && !value._id) {
+						console.warn("You tried to PUT a value without an _id at path "+JSON.stringify(path)+". I added id="+id)
+						value._id = id
+					}
+					cacheElem[key][foundIndex] = value
+					metadataElem[key][foundIndex] = {
 						_ttl: Date.now() + ttl,
 						_type: typeof value
 					}
@@ -200,7 +199,7 @@ class PopulatingCache {
 			// If path[i] is a plain string, then step into that key in the cache.
 			if (key && index === undefined && id === undefined) {
 				cacheElem    = cacheElem[key]
-				if (!cacheElem) return Promise.reject("No element found under key="+key)
+				if (!cacheElem) break;		// If any element along the path is not found, then try to query for the element at the end of the path.
 				if (populate && cacheElem.$ref) {
 					cacheElem = await this.populate(cacheElem, force)
 				}
@@ -209,7 +208,7 @@ class PopulatingCache {
 			// If path[i] is an string that defines an array element "key[index]" then step into it.
 			if (key && index && id === undefined) {
 				cacheElem    = cacheElem[key][index]
-				if (!cacheElem) return Promise.reject("No element found in "+key+"["+index+"]")
+				if (!cacheElem) break;
 				if (populate && cacheElem.$ref) {
 					cacheElem = await this.populate(cacheElem, force)
 				}
@@ -220,7 +219,7 @@ class PopulatingCache {
 			if (key && index === undefined && id) {
 				let cacheArray = cacheElem[key] || (cacheElem[key] = [])			// create array in cache if necessary
 				let foundIndex = cacheArray.findIndex(e => e._id === id)
-				if (foundIndex === -1) return Promise.reject("No element found under with key/id="+key+"/"+id)
+				if (foundIndex === -1) break;
 				cacheElem = cacheArray[foundIndex]
 				if (populate && cacheElem.$ref) {
 					cacheElem = await this.populate(cacheElem, force)
@@ -300,7 +299,7 @@ class PopulatingCache {
 	 * @param {Object} cache subtree of this.cacheData for element path[i]
 	 * @param {Object} metadata subtree of this.cacheMetadata for element path[i]
 	 */
-	async getImpl(i, path, force, cache, metadata) {
+	async getImpl___OLD(i, path, force, cache, metadata) {
 		if (i == path.length) {
 			//console.log("found", cache)
 			return cache
