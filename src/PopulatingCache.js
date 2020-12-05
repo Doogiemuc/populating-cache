@@ -88,7 +88,7 @@ class PopulatingCache {
 				id = Object.values(path[i])[0]
 				index = undefined
 			}
-				
+
 			// If path[i] is a plain string, then step into that key in the cache.
 			if (key && index === undefined && id === undefined) {
 				if (i < path.length-1) {
@@ -111,7 +111,7 @@ class PopulatingCache {
 					metadataElem = metadataElem[key][index] || (metadataElem[key][index] = {})
 				} else {
 					cacheElem[index] = value		// if this is the last element in the  path, then set the value as this array element 
-					metadataElem[key] = {
+					metadataElem[index] = {
 						_ttl: Date.now() + ttl,
 						_type: typeof value
 					}
@@ -121,16 +121,23 @@ class PopulatingCache {
 			if (key && index === undefined && id) {
 				let cacheArray = cacheElem[key] || (cacheElem[key] = [])			// create array in cache if necessary
 				let foundIndex = cacheArray.findIndex(e => e._id === id)
-				if (foundIndex !== -1) {
-					cacheElem = cacheArray[foundIndex]
-				} else {
+				// If "key"-array does not have an element with that _id, then we add a new element to the array.
+				if (foundIndex === -1) {
 					cacheElem = {_id: id}
 					cacheArray.push(cacheElem)
 					foundIndex = cacheArray.length-1
 				}
-				if (i == path.length-1) {
+				if (i < path.length -1) {
+					cacheElem = cacheArray[foundIndex]
+					if (!metadataElem[key]) metadataElem[key] = []
+					metadataElem = metadataElem[key][foundIndex] || (metadataElem[key][foundIndex] = {})
+				} else {
 					if (value && value._id && value._id !== id) console.warn("WARNING: ID mismatch! You are putting a value into the cache under path "+JSON.stringify(path)+". But your value._id="+value._id)
 					cacheArray[foundIndex] = value
+					metadataElem[foundIndex] = {
+						_ttl: Date.now() + ttl,
+						_type: typeof value
+					}
 				}
 			} 
 			else {
@@ -151,12 +158,14 @@ class PopulatingCache {
 	 *       - "array[index]" for array elements. Index must be a positive. 
 	 *     For example: [{posts:5}, {comments:42}] is the comment with id 42 of the post with id 5
 	 *     For a REST backend this can be translated to the REST resource at  /posts/5/comments/42
+	 * @param force Force calls to backend, even when cache element is not yet expired
+	 * @param populate Automatically populate DBrefs from this cache if possible.
 	 * @returns (A Promise that resolves to) the fetched value. Either directly from the cache or from the backend.
 	 * @rejects When the value couldn't be fetched and there was an API error.
 	 * @See shouldCallBackend()
 	 * @See Config.returnClones
 	 */
-	get(path, force = false) {
+	async get(path, force = false, populate = true) {
 		//return this.getImpl(0, path, force, this.cacheData, this.cacheMetadata)
 
 		let cacheElem    = this.cacheData || {}
@@ -192,12 +201,18 @@ class PopulatingCache {
 			if (key && index === undefined && id === undefined) {
 				cacheElem    = cacheElem[key]
 				if (!cacheElem) return Promise.reject("No element found under key="+key)
+				if (populate && cacheElem.$ref) {
+					cacheElem = await this.populate(cacheElem, force)
+				}
 				metadataElem = metadataElem[key] || (metadataElem[key] = {})
 			} else 
 			// If path[i] is an string that defines an array element "key[index]" then step into it.
 			if (key && index && id === undefined) {
 				cacheElem    = cacheElem[key][index]
 				if (!cacheElem) return Promise.reject("No element found in "+key+"["+index+"]")
+				if (populate && cacheElem.$ref) {
+					cacheElem = await this.populate(cacheElem, force)
+				}
 				if (!metadataElem[key]) metadataElem[key] = []
 				metadataElem = metadataElem[key][index] || (metadataElem[key][index] = {})
 			} else 
@@ -207,6 +222,9 @@ class PopulatingCache {
 				let foundIndex = cacheArray.findIndex(e => e._id === id)
 				if (foundIndex === -1) return Promise.reject("No element found under with key/id="+key+"/"+id)
 				cacheElem = cacheArray[foundIndex]
+				if (populate && cacheElem.$ref) {
+					cacheElem = await this.populate(cacheElem, force)
+				}
 				metadataElem = metadataElem[key] || (metadataElem[key] = {})
 			} 
 			else {
