@@ -1,22 +1,3 @@
-/*
-	get(keyPath)								=> get from cache if present, otherwise fetch from remote.     error?
-	get(keyPath, force=true)		=> force fetch from remote (skip cache content) and cache new result. 
-	set   						=> in cache only
-	write							=> write to remote (and update local cache) async  Caller needs to be able to handle error response
-
-
-	# Examples
-
-	````
-	cache.get("cachedPrimitive")							// => 4711
-	cache.get("posts")												// => Anything thats cached under object key "posts", e.g. the Array of posts
-	cache.get(["posts", "category"])					// => returns this.cache.posts.category  (one value)
-	cache.get(["usersById", "4711"])					// => the this.cache.userById["4711"]
-	cache.get([{posts: 1}])											// <= the post with id 1 from the array of posts
-	cache.get([{posts: 5}, {comments: "adfbe435d"}, "createdBy", "email"])		// walk the tree and populate all necessary references
-	````
-*/
-
 const DEFAULT_CONFIG = {
 	defaultTTLms: 60 * 1000,		// one minute
 	returnClones: false,				// Should get() return cloned values or direct references to the attribute from the cache
@@ -26,8 +7,19 @@ const DEFAULT_CONFIG = {
 const pathElemRegEx = /^(?<key>[a-zA-Z_$][0-9a-zA-Z-_$]*)(\[(?<index>\d+)\])?(\/(?<id>[0-9a-zA-Z_$][0-9a-zA-Z-_$]*))?$/
 
 /**
- * # Populating Cache
- * Doogie simplementation of a cache.
+ * Doogies unbelievably clever implementation of a client side cache.
+ * 
+ * ````
+ * cache.get("cachedPrimitive")							// => 4711
+ * cache.get("posts")												// => Anything thats cached under object key "posts", e.g. the Array of posts
+ * cache.get(["posts", "category"])					// => returns this.cache.posts.category  (one value)
+ * cache.get(["usersById", "4711"])					// => the this.cache.userById["4711"]
+ * cache.get([{posts: 1}])											// <= the post with id 1 from the array of posts
+ * cache.get([{posts: 5}, {comments: "adfbe435d"}, "createdBy", "email"])		// walk the tree and populate all necessary references
+ * ````
+ *
+ *
+ *
  */
 class PopulatingCache {
 	// private "fields"
@@ -50,13 +42,13 @@ class PopulatingCache {
 	 * 
 	 * @param {Array} path path under which the `value` shall be stored in the cache
 	 * @param {Any} value The value to store in the cache.
-	 * @param {Number} ttl time to life / how long value can be stored in the cache. Defaults to config.defaultTTLms
+	 * @param {Number} ttl time to live / how long value can be stored in the cache. Defaults to config.defaultTTLms
 	 * @return {Object} the cache instance, so that calls to put() can be chained: `myCache.put("foo", "bar").put("foo2", "baz2")`
 	 */
 	put(path, value, ttl = this.config.defaultTTLms) {
 		let cacheElem    = this.cacheData || {}
 		let metadataElem = this.cacheMetadata || {}
-		// If path is only one single string, then store value under that key.
+		// If path is only a String then wrap in array
 		if (typeof path === "string") path = [path]
 			
 		// Walk along path and insert intermediate objects as necessary
@@ -65,7 +57,7 @@ class PopulatingCache {
 			if (!path[i]) {
 				throw Error("Path elements must not be null. Elemnt "+i+" in your path was null or undefined.")
 			} else
-			// If paht[i] is a string, then extract key, id and index from it: "key", "key/id" or "key[index]"
+			// If path[i] is a string, then extract key, id and index from it: "key", "key/id" or "key[index]"
 			if (typeof path[i] === "string") {
 				if (path[i] === "_id") console.warn("Are you sure that you want to store an _id in the cache?")
 				let match = path[i].match(pathElemRegEx)
@@ -125,8 +117,8 @@ class PopulatingCache {
 				} else {
 					if (typeof value !== "object") value = { _id: id, value: value}
 					if (value && value._id && value._id !== id) {
-						console.warn("WARNING: ID mismatch! You tried to PUT a value under path "+JSON.stringify(path)+". But your value had _id="+value._id+". I corrected that.")
-						value._id = id
+						console.warn("WARNING: ID mismatch! You tried to PUT a value under path "+JSON.stringify(path)+". But your value had value._id="+value._id+". I changed this to value._id="+id)
+						value._id = id  //We need to change value._id, if user expects to receive that value back via this same path.
 					}
 					if (value && !value._id) {
 						console.warn("You tried to PUT a value without an _id at path "+JSON.stringify(path)+". I added id="+id)
@@ -160,20 +152,13 @@ class PopulatingCache {
 	 * @param force Force calls to backend, even when cache element is not yet expired
 	 * @param populate Automatically populate DBrefs from this cache if possible.
 	 * @returns (A Promise that resolves to) the fetched value. Either directly from the cache or from the backend.
-	 * @rejects When the value couldn't be fetched and there was an API error.
-	 * @See shouldCallBackend()
-	 * @See Config.returnClones
+	 * @rejects When the value couldn't be fetched or there was an API error.
 	 */
 	async get(path, force = false, populate = true) {
-		//return this.getImpl(0, path, force, this.cacheData, this.cacheMetadata)
-
 		let cacheElem    = this.cacheData || {}
 		let metadataElem = this.cacheMetadata || {}
-
-		// If path is only one single string, then retreive that value. Either from the cache or call the backend
-		if (typeof path === "string") {
-			return this.getOrFetch([path], cacheElem[path], metadataElem[path], force)
-		}
+		// If path is only a String then wrap in array
+		if (typeof path === "string")  path = [path]
 
 		// Walk along path and get cacheElem and its metadataElem
 		for (let i = 0; i < path.length; i++) {
@@ -196,51 +181,97 @@ class PopulatingCache {
 				index = undefined
 			}
 				
-			// If path[i] is a plain string, then step into that key in the cache.
+			// If path[i] is a plain string, then step into that key. 
 			if (key && index === undefined && id === undefined) {
 				cacheElem    = cacheElem[key]
-				if (!cacheElem) break;		// If any element along the path is not found, then try to query for the element at the end of the path.
-				if (populate && cacheElem.$ref) {
-					cacheElem = await this.populate(cacheElem, force)
+				if (!cacheElem) break;																				// If there is no cacheElem under that key, then immideately call the backend.
+				if (populate && cacheElem.$refPath) {													// If cacheElem is a DBref, then populate it.
+					cacheElem = await this.get(cacheElem.$refPath, force, populate)
 				}
-				metadataElem = metadataElem[key] || (metadataElem[key] = {})
+				metadataElem = metadataElem ? metadataElem[key] : undefined		// And also step into metadata in parallel (may become undefined)
 			} else 
-			// If path[i] is an string that defines an array element "key[index]" then step into it.
+			// If path[i] is a string that defines an array element "key[<number>]" then step into that array element.
 			if (key && index && id === undefined) {
 				cacheElem    = cacheElem[key][index]
 				if (!cacheElem) break;
 				if (populate && cacheElem.$ref) {
-					cacheElem = await this.populate(cacheElem, force)
+					cacheElem = await this.get(cacheElem.$refPath, force, populate)
 				}
 				if (!metadataElem[key]) metadataElem[key] = []
-				metadataElem = metadataElem[key][index] || (metadataElem[key][index] = {})
+				metadataElem = metadataElem && metadataElem[key] ? metadataElem[key][index] : undefined
 			} else 
-			// If elem of path is "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
+			// If path[i] was "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
 			if (key && index === undefined && id) {
-				let cacheArray = cacheElem[key] || (cacheElem[key] = [])			// create array in cache if necessary
-				let foundIndex = cacheArray.findIndex(e => e._id === id)
-				if (foundIndex === -1) break;
-				cacheElem = cacheArray[foundIndex]
+				if (!cacheElem[key]) break;
+				let index = cacheElem[key].findIndex(e => e._id === id)
+				if (index === -1) break;			// if there is no element with a matching _id, then immideately try to query for the full path
+				cacheElem = cacheElem[key][index]
 				if (populate && cacheElem.$ref) {
-					cacheElem = await this.populate(cacheElem, force)
+					cacheElem = await this.get(cacheElem.$refPath, force, populate)
 				}
-				metadataElem = metadataElem[key] || (metadataElem[key] = {})
+				metadataElem = metadataElem && metadataElem[key] ? metadataElem[key][index] : undefined
 			} 
 			else {
 				throw Error("Invalid path element "+i+": "+JSON.stringify(path[i]))
 			}
 		}
-		return this.getOrFetch(path, cacheElem, metadataElem, force)
+
+		// getOrFetch() is not called for elements along the path. We only query the backend for the leaf element at the end of the path once.
+		return await this.getOrFetch(path, cacheElem, metadataElem, force)
 	}
 
+	/*   This was just a try, but doesn't get easier
+	async getChildElem(cacheElem, key, index, metadata, force, populate) {
+		if (!key) throw Error("Cannot getChildElem without key")
+		if (!cacheElem || !cacheElem[key]) return undefined
+		if (!index) {
+			// If only key is given the return the child element under that key.
+			let childElem = cacheElem[key]
+			if (populate && childElem.$ref) childElem = await this.populate(childElem, force)
+			return {
+				elem: childElem,
+				metadata: metadata ? metadata[key] : undefined
+			}
+		} else {
+			// If and index is given the return the child element from "key"-array
+			let childElem = cacheElem[key][index]
+			if (populate && childElem && childElem.$ref) childElem = await this.populate(childElem, force)
+			return {
+				elem: childElem,
+				metadata: metadata && metadata[key] ? metadata[key][index] : undefined
+			}
+		}
+		return undefined
+	}
+  */
 
 
-	getOrFetch(path, cacheElem, metadata, force) {
+	/**
+	 * This method decides if the backend needs to be called to fetch a given value.
+	 * The backend will be called, IF
+	 *  - cacheElem is null, ie. not yet in the cache
+	 *  - cacheElem is expired, because its metadata.ttl is in the past.
+	 *  - or when force === true
+	 * 
+	 * When the backend is call, then the returned value is PUT() back into the cache
+	 * with and updated TTL.
+	 * 
+	 * This method will only be called for leaf elements at the end of path. We never query for "in between" elements along a path.
+	 * 
+	 * @param {Array} path The full path to cacheElem
+	 * @param {*} cacheElem the leaf element at the end of path or null if not in the cache yet
+	 * @param {*} metadata metadata for cacheElem
+	 * @param {*} force always call backend if true
+	 */
+	async getOrFetch(path, cacheElem, metadata, force) {
 		if (!cacheElem || force || (metadata && metadata.ttl < Date.now()))
-			return this.fetchFunc(path)
+			return this.fetchFunc(path).then(res => {
+				this.put(path, res)
+				return res
+			})
+
 		return Promise.resolve(cacheElem)
 	}
-
 
 	/**
 	 * Delete an element from the cache. It's value will be set to undefined.
@@ -268,6 +299,8 @@ class PopulatingCache {
 		return this.cacheMetadata
 	}
 
+	//TODO: get/setMetadata(path)
+
 	/**
 	 * Completely empty the cache. This also clears out all metadata.
 	 */
@@ -284,7 +317,10 @@ class PopulatingCache {
 		//TODO: recursively walk the cache and delete expired elements
 	}
 
-	/**
+	/*
+	 * @OUTDATED 
+	 * This was a recursive implementation of GET. Would also work.
+   *
 	 * Get the tree elem at path from the cache.
 	 * We always try to get every elem along the path from the cache, except
 	 *  - when the cached elem is expired
@@ -298,7 +334,7 @@ class PopulatingCache {
 	 * @param {Boolean} force Force a call to backend on the <b>last</b> elem in path
 	 * @param {Object} cache subtree of this.cacheData for element path[i]
 	 * @param {Object} metadata subtree of this.cacheMetadata for element path[i]
-	 */
+	 
 	async getImpl___OLD(i, path, force, cache, metadata) {
 		if (i == path.length) {
 			//console.log("found", cache)
@@ -344,6 +380,7 @@ class PopulatingCache {
 			return this.getImpl(i+1, path, force, elemById, metadata[key] || {})
 		}
 	}
+	*/
 
 	/**
 	 * Check if we need to call the backend for this cacheElem.
@@ -367,23 +404,14 @@ class PopulatingCache {
 	}
 
 	/**
-	 * Populate the DBref at the given path.
-	 * A call to `populate` simply builds a path array from the passed dbref and then forwards the call to the `get(path)` method.
-	 * The data for the DBref is then either fetched directly from the cache or queried from the backend.
-	 * 
-	 * @param {Object} dbref the reference to another entity, e.g. { $ref: "users", $id: 1234 }
-	 * @return the populated element that can replace the DBref
+	 * Convert the given path to a REST URL path.
+	 * @param {Array} path a populating-cache path array
 	 */
-	populate(dbref, force) {
-		console.log("populate", JSON.stringify(dbref), force)
-		let path = [{[dbref.$ref]: dbref.$id}]
-		return this.get(path, force)
-	}
-
-	path2rest(pathArray) {
+	path2rest(path) {
 		let restPath = ""
-		for(let el of pathArray) {
+		for(let el of path) {
 			if (typeof el === "string") {
+				if (el.includes('[')) throw new Error("Cannot convert path with array[index] elements to REST URL: "+el)
 				restPath += '/'+el
 			} else {
 				let key = Object.keys(el)[0]

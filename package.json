@@ -1,21 +1,21 @@
 {
-  "name": "generator-nod",
+  "name": "populating-cache",
   "version": "0.0.1",
-  "description": "My node module",
+  "description": "A client side cache for data that was loaded from a backend",
   "license": "MIT",
-  "repository": "diegohaz/nod",
-  "main": "dist/index.js",
+  "repository": "doogiemuc/populating-cache",
+  "main": "src/PopulatingCache.js",
   "author": {
     "name": "Robert (DoogieMuc)",
     "email": "coding@doogie.de",
     "url": "https://github.com/DoogieMuc"
   },
   "files": [
-    "dist",
     "src"
   ],
   "scripts": {
-    "test": "jest",
+		"test": "jest",
+		"watch": "jest -- watch",
     "coverage": "npm test -- --coverage",
     "postcoverage": "open-cli coverage/lcov-report/index.html",
     "lint": "eslint .",
