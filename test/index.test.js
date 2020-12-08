@@ -84,7 +84,22 @@ test("Populate a path", async () => {
 	
 })
 
-test.only("Expired elements should be fetched from the backend", async () => {
+test("Force = true should be fetched from the backend", async () => {
+	let path  = ["fooKey"]
+	let value = { _id:42, text: "this is a comment"}
+	const fetchFunc = jest.fn(() => Promise.resolve(value))
+	let cache = new PopulatingChache(fetchFunc)
+	cache.put(path, value)
+
+	// GET with force = true should call backend
+	let res = await cache.get(path, true)
+	expect(res).toEqual(value)
+	expect(fetchFunc.mock.calls.length).toBe(1)
+	expect(fetchFunc.mock.calls[0][0]).toEqual(path)  // first argument of first call should be path
+})
+
+
+test("Expired elements should be fetched from the backend", async () => {
 	let path  = ["fooKey"]
 	let value = { _id:42, text: "this is a comment"}
 	const fetchFunc = jest.fn(() => Promise.resolve(value))
