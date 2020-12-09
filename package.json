@@ -1,6 +1,6 @@
 {
   "name": "populating-cache",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A client side cache for data that was loaded from a backend",
   "license": "MIT",
   "repository": "doogiemuc/populating-cache",
@@ -14,8 +14,8 @@
     "src"
   ],
   "scripts": {
-		"test": "jest",
-		"watch": "jest -- watch",
+    "test": "jest",
+    "watch": "jest -- watch",
     "coverage": "npm test -- --coverage",
     "postcoverage": "open-cli coverage/lcov-report/index.html",
     "lint": "eslint .",
