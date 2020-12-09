@@ -98,22 +98,27 @@ test("Populate a path", async () => {
 	// WHEN
 	return cache
 		.get(["posts/11", "comments[0]", "createdBy", "email"])
+	// THEN  :-)
 		.then(res => {
-			// THEN
 			expect(res).toBe("someuser@domain.com")
 		})
 })
 
-test("Force = true should be fetched from the backend", async () => {
+test("Force = true should call the backend", async () => {
 	const path = ["fooKey"]
 	const value = { _id: 42, text: "this is a comment" }
 	const fetchFunc = jest.fn(() => Promise.resolve(value))
 	const cache = new PopulatingChache(fetchFunc)
 	cache.put(path, value)
 
+	// GET without force should not call the backend
+	const res1 = await cache.get(path)
+	expect(res1).toEqual(value)
+	expect(fetchFunc.mock.calls.length).toBe(0)
+
 	// GET with force = true should call backend
-	const res = await cache.get(path, true)
-	expect(res).toEqual(value)
+	const res2 = await cache.get(path, true)
+	expect(res2).toEqual(value)
 	expect(fetchFunc.mock.calls.length).toBe(1)
 	expect(fetchFunc.mock.calls[0][0]).toEqual(path) // first argument of first call should be path
 })
