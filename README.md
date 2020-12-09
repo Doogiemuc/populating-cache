@@ -1,18 +1,83 @@
 # Populating-Cache - JS client side cache
 
-Efficient JavaScript client side cache for data that is fetched from a backend
+Efficient JavaScript client side cache. Data that is fetched from a backend can be cached locally, for example on a mobile device. 
 
-## Tree structure
+[![Build Status](https://travis-ci.com/Doogiemuc/populating-cache.svg?branch=main)](https://travis-ci.com/Doogiemuc/populating-cache)
+[![GitHub license](https://img.shields.io/github/license/Naereen/StrapDown.js.svg)](https://github.com/Naereen/StrapDown.js/blob/master/LICENSE)
+[![GitHub release](https://img.shields.io/github/release/Naereen/StrapDown.js.svg)](https://GitHub.com/Naereen/StrapDown.js/releases/)
 
-Many caches only store certain values under given keys (or ids).
-_Populating-cache_ stores values in a tree structure. Elements in this tree are identified by the path from the root of the tree to that element.
-The actual values that are stored in the cache (normally) sit at the leave of this tree.
+## Features
 
-## Path
+ * Data is locally stored in a plain JavaScript object.
+ * Values may be anything. Plain strings, arrays or objects.
+ * Every value in the cache has a limited time to life (TTL) after which it expires and will be refetched from the backend.
+ * Populating-Cache is not just a simple key=value store. Values can be stored under any **path**, e.g. `["parnetKey", "childArray[3]", "arrayKey/elemWithId4711"]`
+ * Database references (DBref) can be populated with other elements from the cache (or from the backend.)
+ * Highly configurable
 
-A path into the _populating-cache_ for example looks like this:
+## Simple usage
 
-    let path = [...]
+```javascript
+
+import PopulatingCache from 'populating-cache'  // the module exports a class
+
+// When a value needs to be fetched from the backend then Populating-Cache will call 
+// this function that you must provide.
+let fetchFunc = function(path) {
+	// [...] call backend, make REST request, etc.
+	return Promise.resolve(valueFetchedFromBackend)
+}
+
+// Create a new cache intance.
+let cache = new PopulatingCache(fetchFunc)
+
+// PUT a value into the cache under a given key.
+cache.put("someKey", "Just any value")
+
+// GET that value back from the cache.
+let value = await cache.get("someKey")
+
+// get() will call the backend if the value under a key is expired or not in the cache at all.
+// Therefore get() is an asynchrounous function. It returns a Promise.
+// When a value is fetched from the backend, then it is cached automatically.
+let valueFromBackend = await cache.get("key2")
+```
+
+
+
+## Populating cache is a tree structure
+
+Many caches only store values under keys (or ids). `Populating-Cache` stores values in a tree structure. The cached elements in this tree are identified by the path from the root of the tree to that element.
+The values that are stored in the cache (normally) sit at the leaves of this tree.
+
+
+## Path into the cache
+
+A `path` defines where a value will be stored in the cache. It is an array of path elements from the root of the cache to the value. A Path for example looks like this:
+
+```javascript
+cache.put(["keyOne"], val)                        // Just one string key on top level
+cache.put(["parentKey", "childKey"], value)       // value will be stored under cache.parentKey.childKey
+cache.put(["parentKey", "childArray[3]"], value)  // cache.parentKey.childArray[3] = value
+
+// Populting-Cache can automatically find array items by their _id and store values under this item.
+// Creator of comment with id "ef37d" in post with id "id42"
+// (Here we store a user object in the cache.)
+cache.put(["posts/id42", "comments/ef37d", "createdBy"], {_id:"d55e", name: "John Doe", email: "john@doe.com"}) 
+
+// Path elements can also be objects. This results in the same path as the example above.
+cache.put([{posts:"id42"}, {comments:"ef37d"}, "createdBy"], { ... })
+```
+
+Each path must have at least one element. Each path element can be
+
+ * a plain string which will be used as key (ie. object attribute in the cache object)
+ * name of an array and array-index in brackets: value will be stored in (or under) this array element
+ * a string in the format `"key/id"`. Value will be stored under the array element with that `_id` (Name of "`_id`"-key can be configured)
+ * or object `{key: id}`
+
+When you call `put(path, value)` then the algorithm walks along `path` and stores `value` at the end of the path. All intermidate elements along the path (objects & arrays) will automatically be created. 
+
 
 ## Populate DB references (DBref)
 

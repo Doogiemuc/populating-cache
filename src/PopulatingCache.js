@@ -6,52 +6,20 @@ const DEFAULT_CONFIG = {
 /* Unbelievably clever RegEx to extract (key, id, index) from path elements of type string :-) */
 const pathElemRegEx = /^(?<key>[a-zA-Z_$][0-9a-zA-Z-_$]*)(\[(?<index>\d+)\])?(\/(?<id>[0-9a-zA-Z_$][0-9a-zA-Z-_$]*))?$/
 
-// eslint-disable-next-line no-unused-vars
-function parsePathElement(pathElem) {
-	let key, id, index // eslint-disable-line one-var
-	if (!pathElem) {
-		throw Error("Path elem must not be null or undefined!")
-	}
-	// If elem is a string, then extract key, id and index from it: "key", "key/id" or "key[index]"
-	else if (typeof pathElem === "string") {
-		const match = pathElem.match(pathElemRegEx)
-		if (match === null)
-			return Promise.reject(
-				new Error(`Invalid string path element ${pathElem}`)
-			)
-		key = match.groups.key
-		id = match.groups.id
-		index = match.groups.index
-	}
-	// If path[i] is an object of the form {key: id} then use that.
-	else if (typeof pathElem === "object") {
-		key = Object.keys(pathElem)[0]
-		id = Object.values(pathElem)[0]
-		index = undefined
-	}
-	return [key, id, index]
-}
-
 /**
- * Doogies unbelievably clever implementation of a client side cache.
- *
- * ````
- * cache.get("cachedPrimitive")							// => 4711
- * cache.get("posts")												// => Anything thats cached under object key "posts", e.g. the Array of posts
- * cache.get(["posts", "category"])					// => returns this.cache.posts.category  (one value)
- * cache.get(["usersById", "4711"])					// => the this.cache.userById["4711"]
- * cache.get([{posts: 1}])											// <= the post with id 1 from the array of posts
- * cache.get([{posts: 5}, {comments: "adfbe435d"}, "createdBy", "email"])		// walk the tree and populate all necessary references
- * ````
- *
- *
- *
+ * Clever implementation of a client side cache.
  */
 class PopulatingCache {
 	// private "fields"
 	//   cacheData - the cached data
 	//   cacheMetadata - e.g. time to life / TTL
 
+	/**
+	 * Create a new instance of a PopulatingCache.
+	 * You may create several cache instances, for example for different types of data in your app or with different configuration.
+	 * @param {Function} fetchFunc async function that will be called to fetch elements from the backend. One param: *path* 
+	 * @param {Object} config configuration parameters that may overwrite the DEFFAULT_CONFIG
+	 */
 	constructor(fetchFunc, config) {
 		if (typeof fetchFunc !== "function")
 			throw Error("Need a fetchFunc(tion) to create PopulatingCache")
@@ -314,6 +282,59 @@ class PopulatingCache {
 
 		return Promise.resolve(cacheElem)
 	}
+
+	
+/**
+ * Parse a path into an array of { key, id, index } objects.
+ * 
+ * @param {String|Array} path plain string or array of path elements
+ * @return {Object} Parsed out { key, id, index } Either `id` or `index` is undefind in the returned object.
+ * @throws an Error when path or a path element is invalid
+ */
+parsePath(path) {
+	let result = []
+	if (!path) return result
+	// If path is a string, then split it at the dots or otherwise wrap it into an array.
+	if (typeof path === "string") {
+		if (path.includes('.')) {
+			result = path.split('.')
+		} else {
+			result = [path]
+		}
+	} else if (Array.isArray(path)){
+		result = [...path]  // shallow copy
+	} else {
+		throw new Error('Cannot parse path. Path must be an Array or String.')
+	}
+
+	for (let i = 0; i < result.length; i++) {
+		const pathElem = result[i];
+		if (!pathElem) {
+			throw new Error("path["+i+"] is null or undefined.")			//MAYBE: Skip this pathElem
+		}	else if (typeof pathElem === "string") {
+			// If elem is a string, then extract key, and either id or index from it: "key", "key/id" or "key[index]"
+			const match = pathElem.match(pathElemRegEx)
+			if (!match) throw new Error(`Invalid string pathElem path[${i}]="${pathElem}"`)
+			if (match.groups.id && match.groups.index) 
+				throw new Error("Cannot use index and id at the same time in path["+i+"]"+pathElem)
+			result[i] = { 
+				key: match.groups.key,
+				id: match.groups.id,    // may also be undefined for plain string keys
+				index: match.groups.index ? parseInt(match.groups.index,10) : undefined
+			}
+		} else if (typeof pathElem === "object" && Object.keys(pathElem).length === 1) {
+			// If path[i] can be an object of the form {key: id}
+			result[i] = { 
+				key: Object.keys(pathElem)[0],
+				id:  Object.values(pathElem)[0]
+			}
+		} else {
+			throw new Error("Cannot parse path. Invalid pathElem path["+i+"]="+pathElem)
+		}
+	}
+	return result
+}
+
 
 	/**
 	 * Delete an element from the cache. It's value will be set to undefined.

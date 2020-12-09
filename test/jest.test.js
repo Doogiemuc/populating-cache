@@ -155,3 +155,18 @@ test.each([
 	expect(res.groups[tst.key] === tst.value)
 })
 */
+
+test.each([
+	["abc",      [{key: "abc"}]],
+	["$adfsf",   [{key: "$adfsf"}]],
+	["abc[42]",  [{key: "abc", index: 42}]],
+	["abc/4711", [{key: "abc", id: "4711"}]],
+	[["abc", {foo:"bar"}], [{key: "abc"}, {key: "foo", id:"bar"}]],
+])("Test parsing of path %j", (path, expectedResult) => 
+{
+	const fetchFunc = jest.fn(() => Promise.resolve(value))
+	const cache = new PopulatingChache(fetchFunc)
+	let actual = cache.parsePath(path)
+	expect(actual).toEqual(expectedResult)
+	expect(fetchFunc.mock.calls.length).toBe(0)
+})
