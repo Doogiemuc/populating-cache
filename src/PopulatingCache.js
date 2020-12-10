@@ -1,6 +1,6 @@
 const DEFAULT_CONFIG = {
 	defaultTTLms: 60 * 1000, // one minute
-	returnClones: false // Should get() return cloned values or direct references to the attribute from the cache
+	returnClones: false, // Should get() return cloned values or direct references to the attribute from the cache
 }
 
 /* Unbelievably clever RegEx to extract (key, id, index) from path elements of type string :-) */
@@ -59,7 +59,7 @@ class PopulatingCache {
 					cacheElem[key] = value // If this is the last element in path, then set the value at this position in the cache, replacing anything that was previously there.
 					metadataElem[key] = {
 						_ttl: Date.now() + ttl,
-						_type: typeof value
+						_type: typeof value,
 					}
 				}
 			}
@@ -77,7 +77,7 @@ class PopulatingCache {
 					cacheElem[key][index] = value // if this is the last element in the  path, then set the value as this array element
 					metadataElem[key][index] = {
 						_ttl: Date.now() + ttl,
-						_type: typeof value
+						_type: typeof value,
 					}
 				}
 			}
@@ -85,7 +85,7 @@ class PopulatingCache {
 			else if (key && index === undefined && id) {
 				const cacheArray = cacheElem[key] || (cacheElem[key] = []) // create array in cache if necessary
 				if (!metadataElem[key]) metadataElem[key] = []
-				let foundIndex = cacheArray.findIndex(e => e._id === id)
+				let foundIndex = cacheArray.findIndex((e) => e._id === id)
 				// If "key"-array does not have an element with that _id, then we add a new element to the array.
 				if (foundIndex === -1) {
 					cacheArray.push({ _id: id })
@@ -112,7 +112,7 @@ class PopulatingCache {
 					metadataElem[key][foundIndex] = {
 						_id: id,
 						_ttl: Date.now() + ttl,
-						_type: typeof value
+						_type: typeof value,
 					}
 				}
 			} else {
@@ -188,7 +188,7 @@ class PopulatingCache {
 			// If path[i] was "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
 			else if (key && index === undefined && id) {
 				if (!cacheElem[key]) break
-				const index = cacheElem[key].findIndex(e => e._id === id) // eslint-disable-line no-shadow
+				const index = cacheElem[key].findIndex((e) => e._id === id) // eslint-disable-line no-shadow
 				if (index === -1) break // if there is no element with a matching _id, then immideately try to query for the full path
 				cacheElem = cacheElem[key][index]
 				if (populate && cacheElem.$ref) {
@@ -233,7 +233,7 @@ class PopulatingCache {
 	 */
 	async getOrFetch(path, cacheElem, metadata, force) {
 		if (!cacheElem || force || (metadata && metadata.ttl < Date.now())) {
-			return this.fetchFunc(path).then(res => {
+			return this.fetchFunc(path).then((res) => {
 				this.put(path, res)
 				return res
 			})
@@ -288,7 +288,7 @@ class PopulatingCache {
 					id: match.groups.id, // may also be undefined for plain string keys
 					index: match.groups.index
 						? parseInt(match.groups.index, 10)
-						: undefined
+						: undefined,
 				}
 			} else if (
 				typeof pathElem === "object" &&
@@ -297,7 +297,7 @@ class PopulatingCache {
 				// If path[i] can be an object of the form {key: id}
 				result[i] = {
 					key: Object.keys(pathElem)[0],
-					id: Object.values(pathElem)[0]
+					id: Object.values(pathElem)[0],
 				}
 			} else {
 				throw new Error(

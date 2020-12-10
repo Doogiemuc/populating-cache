@@ -16,7 +16,7 @@ test("PUT a value into the cache and GET it back", () => {
 		"metadata after PUT",
 		JSON.stringify(cache.getMetadata(), null, 2)
 	)
-	return cache.get(key).then(returnedValue => {
+	return cache.get(key).then((returnedValue) => {
 		expect(alwaysReject.mock.calls.length).toBe(0)
 		expect(returnedValue).toEqual(value)
 	})
@@ -26,7 +26,7 @@ test.each([
 	["keyOne", "value1"],
 	[[{ keyTwo: 3 }], { _id: 3, foo: "bar" }],
 	[["key1", { keyWithId: 4 }, { secondKeyWithId: 3 }, "childAttr"], "value2"],
-	[["arrayOne[3]", { subkey: "stringkey" }, "childKey2/12", "var"], "value4"]
+	[["arrayOne[3]", { subkey: "stringkey" }, "childKey2/12", "var"], "value4"],
 ])("PUT and GET: %j = %j", (path, value) => {
 	const alwaysReject = jest.fn(() =>
 		Promise.reject(new Error("Should not be called"))
@@ -35,7 +35,7 @@ test.each([
 	cache.put(path, value)
 	console.log("cache after PUT", JSON.stringify(cache.getCacheData()))
 	console.log("metadata after PUT", JSON.stringify(cache.getMetadata()))
-	return cache.get(path).then(returnedValue => {
+	return cache.get(path).then((returnedValue) => {
 		console.log("cache returned:", returnedValue)
 		expect(alwaysReject.mock.calls.length).toBe(0)
 		expect(returnedValue).toEqual(value)
@@ -49,7 +49,7 @@ test.each([
 test.each([
 	[["missingId/99"], "plainString", { _id: "99", value: "plainString" }], // not an object: Will wrap and add id
 	[["wrongId/99"], { _id: 666, foo: "bar" }, { _id: "99", foo: "bar" }], // id mismatch  => will correct internal id
-	[["missingId/99"], "anything", { _id: "99", value: "anything" }] // no object => will automatically wrap and add id
+	[["missingId/99"], "anything", { _id: "99", value: "anything" }], // no object => will automatically wrap and add id
 ])("PUT and GET: %j = %j", (path, value, expected) => {
 	const alwaysReject = jest.fn(() =>
 		Promise.reject(new Error("Should not be called"))
@@ -58,7 +58,7 @@ test.each([
 	cache.put(path, value)
 	console.log("cache after PUT", JSON.stringify(cache.getCacheData()))
 	console.log("metadata after PUT", JSON.stringify(cache.getMetadata()))
-	return cache.get(path).then(returnedValue => {
+	return cache.get(path).then((returnedValue) => {
 		console.log("cache returned:", returnedValue)
 		expect(alwaysReject.mock.calls.length).toBe(0)
 		expect(returnedValue).toEqual(expected)
@@ -70,7 +70,7 @@ test("GET of unkonw value should call backend", () => {
 	const fetchFunc = jest.fn(() => Promise.resolve(value))
 	const cache = new PopulatingChache(fetchFunc)
 	const path = ["justAnyKey"]
-	return cache.get(path).then(returnedValue => {
+	return cache.get(path).then((returnedValue) => {
 		expect(fetchFunc.mock.calls.length).toBe(1)
 		expect(returnedValue).toBe(value)
 	})
@@ -87,12 +87,12 @@ test("Populate a path", async () => {
 	cache.put(["posts/11", "comments[0]"], {
 		_id: 4711,
 		text: "this is a comment",
-		createdBy: { $refPath: "users/abc67" }
+		createdBy: { $refPath: "users/abc67" },
 	})
 	cache.put(["users/abc67"], {
 		_id: "abc67",
 		username: "SomeUser",
-		email: "someuser@domain.com"
+		email: "someuser@domain.com",
 	})
 	// console.log("=== Cache after PUTs", JSON.stringify(cache.getCacheData(), null, 4))
 	// prettier-ignore
