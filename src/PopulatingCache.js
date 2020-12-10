@@ -17,7 +17,7 @@ class PopulatingCache {
 	/**
 	 * Create a new instance of a PopulatingCache.
 	 * You may create several cache instances, for example for different types of data in your app or with different configuration.
-	 * @param {Function} fetchFunc async function that will be called to fetch elements from the backend. One param: *path* 
+	 * @param {Function} fetchFunc async function that will be called to fetch elements from the backend. One param: *path*
 	 * @param {Object} config configuration parameters that may overwrite the DEFFAULT_CONFIG
 	 */
 	constructor(fetchFunc, config) {
@@ -37,18 +37,18 @@ class PopulatingCache {
 	 * @param {Array} path path under which the `value` shall be stored in the cache
 	 * @param {Any} value The value to store in the cache.
 	 * @param {Number} ttl time to live / how long value can be stored in the cache. Defaults to config.defaultTTLms
-	 * @return {Object} the cache instance, so that calls to put() can be chained: `myCache.put("foo", "bar").put("foo2", "baz2")`
+	 * @returns {Object} the cache instance, so that calls to put() can be chained: `myCache.put("foo", "bar").put("foo2", "baz2")`
 	 */
 	put(path, value, ttl = this.config.defaultTTLms) {
 		let cacheElem = this.cacheData || {}
 		let metadataElem = this.cacheMetadata || {}
-		let parsedPath = this.parsePath(path)
-		
+		const parsedPath = this.parsePath(path)
+
 		// Walk along path and insert intermediate objects as necessary
 		for (let i = 0; i < parsedPath.length; i++) {
-			let key   = parsedPath[i].key
-			let id    = parsedPath[i].id
-			let index = parsedPath[i].index
+			const key = parsedPath[i].key
+			const id = parsedPath[i].id
+			const index = parsedPath[i].index
 
 			// If path[i] is a plain string, then step into that key in the cache.
 			if (key && index === undefined && id === undefined) {
@@ -110,13 +110,16 @@ class PopulatingCache {
 					}
 					cacheElem[key][foundIndex] = value
 					metadataElem[key][foundIndex] = {
+						_id: id,
 						_ttl: Date.now() + ttl,
 						_type: typeof value
 					}
 				}
 			} else {
 				throw Error(
-					`Invalid path element ${i}: ${JSON.stringify(parsedPath[i])}`
+					`Invalid path element ${i}: ${JSON.stringify(
+						parsedPath[i]
+					)}`
 				)
 			}
 		}
@@ -128,28 +131,28 @@ class PopulatingCache {
 	 * If `force==true` then the value will always be queried from the backend.
 	 * When the backend is called, then the returned value will again be stored in the cache and its TTL will be updated.
 	 *
-	 * @param path array that forms the path to the value that shall be fetched.
+	 * @param {String|Array} path array that forms the path to the value that shall be fetched.
 	 *     Each array element can be one of three formats:
 	 *       - a plain "attributeName" for object properties in the cache.
 	 *       - { arrayAttr: "abde3f"} for the array element with that id.
 	 *       - "array[index]" for array elements. Index must be a positive.
 	 *     For example: [{posts:5}, {comments:42}] is the comment with id 42 of the post with id 5
 	 *     For a REST backend this can be translated to the REST resource at  /posts/5/comments/42
-	 * @param force Force calls to backend, even when cache element is not yet expired
-	 * @param populate Automatically populate DBrefs from this cache if possible.
+	 * @param {Boolean} force Force calls to backend, even when cache element is not yet expired
+	 * @param {Boolean} populate Automatically populate DBrefs from this cache if possible.
 	 * @returns (A Promise that resolves to) the fetched value. Either directly from the cache or from the backend.
 	 * @rejects When the value couldn't be fetched or there was an API error.
 	 */
 	async get(path, force = false, populate = true) {
 		let cacheElem = this.cacheData || {}
 		let metadataElem = this.cacheMetadata || {}
-		let parsedPath = this.parsePath(path)
-		
+		const parsedPath = this.parsePath(path)
+
 		// Walk along path and insert intermediate objects as necessary
 		for (let i = 0; i < parsedPath.length; i++) {
-			let key   = parsedPath[i].key
-			let id    = parsedPath[i].id
-			let index = parsedPath[i].index
+			const key = parsedPath[i].key
+			const id = parsedPath[i].id
+			const index = parsedPath[i].index
 
 			// If path[i] is a plain string, then step into that key.
 			if (key && index === undefined && id === undefined) {
@@ -223,9 +226,10 @@ class PopulatingCache {
 	 * This method will only be called for leaf elements at the end of path. We never query for "in between" elements along a path.
 	 *
 	 * @param {Array} path The full path to cacheElem
-	 * @param {*} cacheElem the leaf element at the end of path or null if not in the cache yet
-	 * @param {*} metadata metadata for cacheElem
-	 * @param {*} force always call backend if true
+	 * @param {Any} cacheElem the leaf element at the end of path or null if not in the cache yet
+	 * @param {Object} metadata metadata for cacheElem
+	 * @param {Boolean} force always call backend if true
+	 * @returns {Promise} element either directly from the cache or fetched from the backend
 	 */
 	async getOrFetch(path, cacheElem, metadata, force) {
 		if (!cacheElem || force || (metadata && metadata.ttl < Date.now())) {
@@ -233,17 +237,15 @@ class PopulatingCache {
 				this.put(path, res)
 				return res
 			})
-		} else {
-			return Promise.resolve(cacheElem)
 		}
+		return Promise.resolve(cacheElem)
 	}
 
-	
 	/**
 	 * Parse a path into an array of { key, id, index } objects.
-	 * 
+	 *
 	 * @param {String|Array} path plain string or array of path elements
-	 * @return {Object} Parsed out { key, id, index } Either `id` or `index` is undefind in the returned object.
+	 * @returns {Object} Parsed out { key, id, index } Either `id` or `index` is undefind in the returned object.
 	 * @throws an Error when path or a path element is invalid
 	 */
 	parsePath(path) {
@@ -252,46 +254,59 @@ class PopulatingCache {
 
 		// If path is a string, then split it at the dots or otherwise wrap it into an array.
 		if (typeof path === "string") {
-			if (path.includes('.')) {
-				result = path.split('.')
+			if (path.includes(".")) {
+				result = path.split(".")
 			} else {
 				result = [path]
 			}
-		} else if (Array.isArray(path)){
-			result = [...path]  // shallow copy
+		} else if (Array.isArray(path)) {
+			result = [...path] // shallow copy
 		} else {
-			throw new Error('Cannot parse path. Path must be an Array or String.')
+			throw new Error(
+				"Cannot parse path. Path must be an Array or String."
+			)
 		}
 
 		// Loop over path array elements and parse each of them.
 		for (let i = 0; i < result.length; i++) {
-			const pathElem = result[i];
+			const pathElem = result[i]
 			if (!pathElem) {
-				throw new Error("path["+i+"] is null or undefined.")			//MAYBE: Skip this pathElem
-			}	else if (typeof pathElem === "string") {
+				throw new Error(`path[${i}] is null or undefined.`) // MAYBE: Skip this pathElem
+			} else if (typeof pathElem === "string") {
 				// If elem is a string, then extract key, and either id or index from it: "key", "key/id" or "key[index]"
 				const match = pathElem.match(pathElemRegEx)
-				if (!match) throw new Error(`Invalid string pathElem path[${i}]="${pathElem}"`)
-				if (match.groups.id && match.groups.index) 
-					throw new Error("Cannot use index and id at the same time in path["+i+"]"+pathElem)
-				result[i] = { 
+				if (!match)
+					throw new Error(
+						`Invalid string pathElem path[${i}]="${pathElem}"`
+					)
+				if (match.groups.id && match.groups.index)
+					throw new Error(
+						`Cannot use index and id at the same time in path[${i}]${pathElem}`
+					)
+				result[i] = {
 					key: match.groups.key,
-					id: match.groups.id,    // may also be undefined for plain string keys
-					index: match.groups.index ? parseInt(match.groups.index,10) : undefined
+					id: match.groups.id, // may also be undefined for plain string keys
+					index: match.groups.index
+						? parseInt(match.groups.index, 10)
+						: undefined
 				}
-			} else if (typeof pathElem === "object" && Object.keys(pathElem).length === 1) {
+			} else if (
+				typeof pathElem === "object" &&
+				Object.keys(pathElem).length === 1
+			) {
 				// If path[i] can be an object of the form {key: id}
-				result[i] = { 
+				result[i] = {
 					key: Object.keys(pathElem)[0],
-					id:  Object.values(pathElem)[0]
+					id: Object.values(pathElem)[0]
 				}
 			} else {
-				throw new Error("Cannot parse path. Invalid pathElem path["+i+"]="+pathElem)
+				throw new Error(
+					`Cannot parse path. Invalid pathElem path[${i}]=${pathElem}`
+				)
 			}
 		}
 		return result
 	}
-
 
 	/**
 	 * Delete an element from the cache. It's value will be set to undefined.
@@ -311,26 +326,43 @@ class PopulatingCache {
 	}
 
 	/**
-	 * While you `put` values into the cache, populating cache automatically
+	 * While you `put` values into the cache, Populating-Cache automatically
 	 * creates a second parallel tree of metadata next to the `cacheData`.
-	 * The metadata contains the time to life TTL for each leave element.
+	 * The metadata contains the time to life (TTL) of the value in the cache. `_ttl` is the number of milliseconds
+	 * since the epoc, when the value expires.
+	 * @param {Array} path fetch metadata of a specific element. If null or undefind, that all metadata of the whole cache is returned.
+	 * @returns {Object} metadata of cached value under path, e.g. { _ttl: 55235325000, _type: "Integer"}
 	 */
 	getMetadata(path) {
 		if (!path) return this.cacheMetadata
-		return Error("not yet implemented")
-		/*
-		let cacheElem    = this.cacheData || {}
 		let metadataElem = this.cacheMetadata || {}
-		// If path is only a String then wrap in array
-		if (typeof path === "string") path = [path]
+		const parsedPath = this.parsePath(path)
 
-		// Walk along path and get cacheElem and its metadataElem
-		let key, id, index
-		for (let i = 0; i < path.length; i++) {
-			let [key, id, index] = parsePathElement(path[i])
+		// Walk along path and insert intermediate objects as necessary
+		for (let i = 0; i < parsedPath.length; i++) {
+			const key = parsedPath[i].key
+			const id = parsedPath[i].id
+			const index = parsedPath[i].index
+			if (!metadataElem || !metadataElem[key]) return undefined
 
+			// If path[i] is a plain string, then step into that key.
+			if (key && index === undefined && id === undefined) {
+				metadataElem = metadataElem[key]
+			}
+			// If path[i] is a string that defines an array element "key[<number>]" then step into that array element.
+			else if (key && index >= 0 && id === undefined) {
+				metadataElem = metadataElem[key][index]
+			}
+			// If path[i] was "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
+			else if (key && index === undefined && id) {
+				metadataElem = metadataElem[key][index]
+			} else {
+				throw Error(
+					`Invalid path element ${i}: ${JSON.stringify(path[i])}`
+				)
+			}
 		}
-		*/
+		return metadataElem
 	}
 
 	/**

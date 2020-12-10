@@ -95,10 +95,10 @@ test("Populate a path", async () => {
 		email: "someuser@domain.com"
 	})
 	// console.log("=== Cache after PUTs", JSON.stringify(cache.getCacheData(), null, 4))
+	// prettier-ignore
 	// WHEN
-	return cache
-		.get(["posts/11", "comments[0]", "createdBy", "email"])
-	// THEN  :-)
+	return cache.get(["posts/11", "comments[0]", "createdBy", "email"])
+		// THEN
 		.then(res => {
 			expect(res).toBe("someuser@domain.com")
 		})
@@ -160,18 +160,17 @@ test.each([
 	expect(res.groups[tst.key] === tst.value)
 })
 */
-
-test.each([
+// prettier-ignore
+test.each([	
 	["abc",      [{key: "abc"}]],
 	["$adfsf",   [{key: "$adfsf"}]],
 	["abc[42]",  [{key: "abc", index: 42}]],
 	["abc/4711", [{key: "abc", id: "4711"}]],
 	[["abc", {foo:"bar"}], [{key: "abc"}, {key: "foo", id:"bar"}]],
-])("Test parsing of path %j", (path, expectedResult) => 
-{
-	const fetchFunc = jest.fn(() => Promise.resolve(value))
+])("Test parsing of path %j", (path, expectedResult) => {
+	const fetchFunc = jest.fn(value => Promise.resolve(value))
 	const cache = new PopulatingChache(fetchFunc)
-	let actual = cache.parsePath(path)
+	const actual = cache.parsePath(path)
 	expect(actual).toEqual(expectedResult)
 	expect(fetchFunc.mock.calls.length).toBe(0)
 })

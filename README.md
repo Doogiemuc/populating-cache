@@ -1,6 +1,6 @@
 # Populating-Cache - JS client side cache
 
-Efficient JavaScript client side cache. Data that is fetched from a backend can be cached locally, for example on a mobile device. 
+Efficient JavaScript client side cache. When data is fetched from a backend then it can be cached locally, for example in an App that's running on a mobile device.
 
 [![Build Status](https://travis-ci.com/Doogiemuc/populating-cache.svg?branch=main)](https://travis-ci.com/Doogiemuc/populating-cache)
 [![GitHub license](https://img.shields.io/github/license/Naereen/StrapDown.js.svg)](https://github.com/Naereen/StrapDown.js/blob/master/LICENSE)
@@ -8,17 +8,18 @@ Efficient JavaScript client side cache. Data that is fetched from a backend can 
 
 ## Features
 
- * Data is locally stored in a plain JavaScript object.
- * Values may be anything. Plain strings, arrays or objects.
- * Every value in the cache has a limited time to life (TTL) after which it expires and will be refetched from the backend.
- * Populating-Cache is not just a simple key=value store. Values can be stored under any **path**, e.g. `["parnetKey", "childArray[3]", "arrayKey/elemWithId4711"]`
- * Database references (DBref) can be populated with other elements from the cache (or from the backend.)
- * Highly configurable
+ * On the client data is locally stored in an in-memory cache (which is a plain JavaScript object)
+ * Values in the cache may be anything you can store in a JavaScript Variable: Strings, arrays or objects.
+ * Every value you put into the cache also has metadata, for example a limited time to life (TTL) after which the value expires and will be refetched from the backend.
+ * Populating-Cache is not just a simple key=value store. Values can be stored under any [path](#path-into-the-cache).
+ * A value in the cache may reference other top level values, e.g. `post.createdBy` may reference a `user` entity. These Database references (DBref) can automatically be populated when getting values from the cache.
+ * Populating cache is 100% tested and highly configurable.
 
 ## Simple usage
 
-```javascript
+Install the npm dependency in your project: `npm install populating-cache`
 
+```javascript
 import PopulatingCache from 'populating-cache'  // the module exports a class
 
 // When a value needs to be fetched from the backend then Populating-Cache will call 
