@@ -1,10 +1,11 @@
 language: node_js
 node_js:
-  - v8
+- v8
 script:
-  - yarn lint
-  - yarn test --coverage
-cache:
-  - yarn
-# after_success:
-#   - bash <(curl -s https://codecov.io/bash)
+- npm run lint
+- npm run test --coverage
+deploy:
+  api_key:
+    secure: hIE3ba9IkOvSN34jYITutfPo7+PBmnSFSa8WmiwdqSRFsEW4xqVGabkjUmcxZIYAV/WAZKNxC7604pza3k1KHJvt8uTTjJpK+UuSfkW0B+UWYXe8Y+A2jtbe2/ADGkFLEUB3xYSyzbaRzh0VkXXar2e/7yU/zcgALVDBVuT3lmYPAX9MaXY74cizRvHaM8rzrt9ggXkGlCoz1yAwrd2c7w1mwnLuClNK7wyz4GhEXrXveq9w3NFGpNiAVPZ8VSkVnTyVytCvVfgzy5gpAq2JQ2MN5tcu0fntzZSo5pLWsrhKRNI+x/1OtajywVPESpdP/ib71Of8i7iuBEnM4iwsMgGCN/NJThECyLHPTiE82wraHhacI1kuiVeYRIMRK2UHE3u21FOvERolFp/0WfqsJU44mrgVS2XDDESW1YyER3F22gMX6O3hTq96iokPeRhk0LUB2JytMyBV8OV/iNJdOr04h6MJPJ49GE8TsF4/LNfmNccPSABE727XnibQECUkmWP2UJwJ9aqIHExzaJGs6wlJpTgCr+xE8091Diez7ihk3fYLvokPhaqklvHSy/Zz9VdugP7XbeNO+9qxAlmoUbUS8UQF+oKT1gtK9eMAmeH/OB2mxIU7byx3x1z6iFnTnRPKalRyA3dfg4tcY6u5FCgye6RyXgSTCbnWd4tQrHA=
+  on:
+    tags: true
