@@ -1,15 +1,23 @@
 {
   "parser": "babel-eslint",
   "extends": [
-    "airbnb-base",
-    "plugin:prettier/recommended"
+		"eslint:recommended"
+		//"airbnb-base"
+    //"plugin:prettier/recommended"
   ],
   "plugins": [
   ],
   "env": {
+		"es6": true,
+		"node": true,
     "jest": true
   },
   "rules": {
+		"indent": ["error", "tab"],
+		"semi": ["error", "never"],
+		"max-len": ["warn", { "code": 140 }] // we do have 4K monitors nowadays!
+		/*
+		"no-tabs": ["off"],		// always allow tabs
 		"no-underscore-dangle": ["off"],
 		"no-plusplus": ["off"],
 		"prefer-destructuring": ["off"],
@@ -17,5 +25,6 @@
 		"no-console": ["off"],					// We do output some warnings.
 		"no-param-reassign": ["off"],
 		"class-methods-use-this": ["off"]
+		*/
   }
 }

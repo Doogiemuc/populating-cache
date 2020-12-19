@@ -9,16 +9,18 @@ Efficient JavaScript client side cache. When data is fetched from a backend then
 ## Features
 
  * On the client data is locally stored in an in-memory cache (which is a plain JavaScript object)
- * Values in the cache may be anything you can store in a JavaScript Variable: Strings, arrays or objects.
- * Every value you put into the cache also has metadata, for example a limited time to life (TTL) after which the value expires and will be refetched from the backend.
+ * Values in the cache may be anything you can store in a JavaScript variable: Strings, Arrays or JSON Objects.
+ * Every value you put into the cache can have a limited time to life. If that TTL expires, then the value will be refetched from the backend.
  * Populating-Cache is not just a simple key=value store. Values can be stored under any [path](#path-into-the-cache).
- * A value in the cache may reference other top level values, e.g. `post.createdBy` may reference a `user` entity. These Database references (DBref) can automatically be populated when getting values from the cache.
+ * A value may reference other values in the cache via their path, e.g. `posts[42].createdBy` may reference a `user` entity. These Database references (DBref) can automatically be populated when getting values from the cache.
  * Populating cache is 100% tested and highly configurable.
 
 ## Simple usage
 
 Install the npm dependency in your project: `npm install populating-cache`
 
+
+#### helloWorld.js
 ```javascript
 import PopulatingCache from 'populating-cache'  // the module exports a class
 
@@ -79,6 +81,10 @@ Each path must have at least one element. Each path element can be
 
 When you call `put(path, value)` then the algorithm walks along `path` and stores `value` at the end of the path. All intermidate elements along the path (objects & arrays) will automatically be created. 
 
+## Time to life (TTL)
+
+When you `put` a value into the cache, then metadata about that value will also be stored. Each value can have a time to life after which it expires. When you try to `get` and expired value,
+then it is be refetched from the backend. When a value is expired, then also its children are considered to be expired. (But not referenced entities. They have their own TTL.)
 
 ## Populate DB references (DBref)
 

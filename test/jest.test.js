@@ -47,9 +47,9 @@ test.each([
  * But the cache is clever enough to correct these as good as possible.
  */
 test.each([
-	[["missingId/99"], "plainString", { _id: "99", value: "plainString" }], // not an object: Will wrap and add id
-	[["wrongId/99"], { _id: 666, foo: "bar" }, { _id: "99", foo: "bar" }], // id mismatch  => will correct internal id
-	[["missingId/99"], "anything", { _id: "99", value: "anything" }], // no object => will automatically wrap and add id
+	[["missingId/99"], "plainString", { _id: "99", value: "plainString" }],	// not an object: Will wrap and add id
+	[["wrongId/99"], { _id: 666, foo: "bar" }, { _id: "99", foo: "bar" }],	// id mismatch  => will correct internal id
+	[["missingId/99"], "anything", { _id: "99", value: "anything" }], 			// no object => will automatically wrap and add id
 ])("PUT and GET: %j = %j", (path, value, expected) => {
 	const alwaysReject = jest.fn(() =>
 		Promise.reject(new Error("Should not be called"))
@@ -79,9 +79,7 @@ test("GET of unkonw value should call backend", () => {
 test("Populate a path", async () => {
 	// GIVEN
 	const fetchFunc = jest.fn(() =>
-		Promise.reject(
-			new Error("Backend should not be called in this test case")
-		)
+		Promise.reject(new Error("Backend should not be called in this test case"))
 	)
 	const cache = new PopulatingChache(fetchFunc)
 	cache.put(["posts/11", "comments[0]"], {
@@ -104,9 +102,44 @@ test("Populate a path", async () => {
 		})
 })
 
+test("TTL is checked correctly, when populating a path", async () => {
+	// GIVEN a post's comment that references a User
+	const commentPath = ["posts/11", "comments[0]"]
+	const emailPath   = ["posts/11", "comments[0]", "createdBy", "email"]
+	const userEmail   = "someuser@domain.com"
+	const fetchFunc = jest.fn((path) => {
+		if (path.length === emailPath.length && path[path.length-1] === emailPath[emailPath.length-1]) return Promise.resolve(userEmail)
+		else return Promise.resolve("This should not have been called with path="+JSON.stringify(path))
+	})
+	const cache = new PopulatingChache(fetchFunc)
+	cache.put(commentPath, {
+		_id: 4711,
+		text: "this is a comment",
+		createdBy: { $refPath: "users/abc67" },
+	})
+	cache.put(["users/abc67"], {
+		_id: "abc67",
+		username: "SomeUser",
+		email: userEmail,
+	})
+
+	// AND the comment's TTL is expired
+	let commentMetadata = cache.getMetadata(commentPath)
+	commentMetadata["_ttl"] = 1
+
+	// WHEN we fetch the createdBy.email
+	const res = await cache.get(emailPath)
+	
+	// THEN the comment is fetched from the backend. (not the user!)
+	expect(res).toBe("someuser@domain.com")
+	expect(fetchFunc.mock.calls.length).toBe(1)
+	expect(fetchFunc.mock.calls[0][0]).toEqual(emailPath)   // first argument of first call should be this
+})
+
+
 test("Force = true should call the backend", async () => {
 	const path = ["fooKey"]
-	const value = { _id: 42, text: "this is a comment" }
+	const value = { _id: 42, text: "this is comment 42" }
 	const fetchFunc = jest.fn(() => Promise.resolve(value))
 	const cache = new PopulatingChache(fetchFunc)
 	cache.put(path, value)
@@ -125,8 +158,9 @@ test("Force = true should call the backend", async () => {
 
 test("Expired elements should be fetched from the backend", async () => {
 	const path = ["fooKey"]
-	const value = { _id: 42, text: "this is a comment" }
-	const fetchFunc = jest.fn(() => Promise.resolve(value))
+	const value = { _id: 43, text: "this is comment 43" }
+	const valueNew = { _id: 43, text: "this is updated comment 43" }
+	const fetchFunc = jest.fn(() => Promise.resolve(valueNew))
 	const cache = new PopulatingChache(fetchFunc)
 	cache.put(path, value)
 
@@ -136,15 +170,53 @@ test("Expired elements should be fetched from the backend", async () => {
 	expect(fetchFunc.mock.calls.length).toBe(0)
 
 	// Set TTL to way in the past
-	const metadata = cache.getMetadata()
-	metadata[path].ttl = 5
+	const metadata = cache.getMetadata(path)
+	metadata._ttl = 1
 
 	// Second call should be fetched from the backend
 	const res2 = await cache.get(path)
-	expect(res2).toEqual(value)
+	expect(res2).toEqual(valueNew)
 	expect(fetchFunc.mock.calls.length).toBe(1)
 	expect(fetchFunc.mock.calls[0][0]).toEqual(path) // first argument of first call should be path
 })
+
+test("Element with expired parent should be fetched from the backend", async () => {
+	const postPath = ["posts/11"]
+	const commentTextPath = ["posts/11", "comments[0]", "text"]
+	const postValue = { _id:11, comments: [{ _id: 4711, text: "This is a comment" }] }
+	const commentNewValue = "This is an updated comment"
+	const postValueNew = { _id:11, comments: [{ _id: 4711, text: commentNewValue }] }
+
+	// This mock backend returns the updated post. 
+	// It only returns that one specific post and should not be called otherwise within this test case
+	const fetchFunc = jest.fn((value) => {
+		//console.log("Call to mock backend for GET("+JSON.stringify(value)+")")
+		if (value.length === 1 && value[0] === postPath[0]) {
+			return Promise.resolve(postValueNew)
+		} else {
+			return Promise.reject("Invlaid call to backend with path="+JSON.stringify(value))
+		}
+	})
+	const cache = new PopulatingChache(fetchFunc)
+	cache.put(postPath, postValue)
+
+	// First call: Should be returned from the cache
+	const res = await cache.get(commentTextPath)
+	expect(res).toEqual("This is a comment")
+	expect(fetchFunc.mock.calls.length).toBe(0)
+
+	// Set TTL to way in the past
+	const metadata = cache.getMetadata(postPath)
+	metadata._ttl = 1
+
+	// Second call should be fetched from the backend
+	const res2 = await cache.get(commentTextPath)
+	expect(res2).toEqual(commentNewValue)
+	expect(fetchFunc.mock.calls.length).toBe(1)
+	expect(fetchFunc.mock.calls[0][0]).toEqual(postPath) // first argument of first (and only) call to fetchFunc should have been postPath
+})
+
+
 
 /*
 test.each([
@@ -160,6 +232,8 @@ test.each([
 	expect(res.groups[tst.key] === tst.value)
 })
 */
+
+
 // prettier-ignore
 test.each([	
 	["abc",      [{key: "abc"}]],

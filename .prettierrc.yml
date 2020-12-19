@@ -1,3 +1,8 @@
+# Tabs are the ony way to let every developer configure how large he wants the indent to be on his screen.
 useTabs: true
+# I want to have and indent of 4 (actually not "space characters", but simply indented lines on my screen)
 tabWidth: 4
+# No semicolon at the end of each and every line.
 semi: false
+# Nowadays we have 4K monitors!!!
+printWidth: 120  

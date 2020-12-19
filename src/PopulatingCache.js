@@ -1,6 +1,29 @@
+/**
+ * Populating Cache
+ *
+ * A lightweight client side cache that can store values in a tree structure.
+ * https://github.com/doogiemuc/populating-cache
+ */
+
+/**
+ * Default configuration for a cache. You can overwrite these when creating a new PopulatingCache instance.
+ * Each cache instance can have its own configuration.
+ */
 const DEFAULT_CONFIG = {
-	defaultTTLms: 60 * 1000, // one minute
-	returnClones: false, // Should get() return cloned values or direct references to the attribute from the cache
+	// one minute
+	defaultTTLms: 60 * 1000,
+
+	// Should get() return cloned values or direct references to the attribute from the cache
+	returnClones: false,
+
+	// Should referenced pathes automatically be resolved and populated by default. This default can be overriden when calling `GET()`.
+	populate: true,
+
+	//TODO: Name of _id attribute used when looking up `entity/febb3` or `user/42`
+	idAttr: "_id",
+
+	// Name of the JSON attribute that marks a referenced path (DBRef), e.g. `createdByUser: { $refPath: "users/4711" }`
+	referencedPathAttr: "$refPath"
 }
 
 /* Unbelievably clever RegEx to extract (key, id, index) from path elements of type string :-) */
@@ -21,8 +44,7 @@ class PopulatingCache {
 	 * @param {Object} config configuration parameters that may overwrite the DEFFAULT_CONFIG
 	 */
 	constructor(fetchFunc, config) {
-		if (typeof fetchFunc !== "function")
-			throw Error("Need a fetchFunc(tion) to create PopulatingCache")
+		if (typeof fetchFunc !== "function") throw Error("Need a fetchFunc(tion) to create PopulatingCache")
 		this.fetchFunc = fetchFunc
 		this.config = { ...DEFAULT_CONFIG, ...config }
 		this.cacheData = {}
@@ -56,7 +78,9 @@ class PopulatingCache {
 					cacheElem = cacheElem[key] || (cacheElem[key] = {}) // create the attribute in the cache if necessary
 					metadataElem = metadataElem[key] || (metadataElem[key] = {})
 				} else {
-					cacheElem[key] = value // If this is the last element in path, then set the value at this position in the cache, replacing anything that was previously there.
+					// If this is the last element in path, then set the value at this position in the cache,
+					// replacing anything that was previously there.
+					cacheElem[key] = value 
 					metadataElem[key] = {
 						_ttl: Date.now() + ttl,
 						_type: typeof value,
@@ -85,7 +109,7 @@ class PopulatingCache {
 			else if (key && index === undefined && id) {
 				const cacheArray = cacheElem[key] || (cacheElem[key] = []) // create array in cache if necessary
 				if (!metadataElem[key]) metadataElem[key] = []
-				let foundIndex = cacheArray.findIndex((e) => e._id === id)
+				let foundIndex = cacheArray.findIndex((e) => e._id == id)
 				// If "key"-array does not have an element with that _id, then we add a new element to the array.
 				if (foundIndex === -1) {
 					cacheArray.push({ _id: id })
@@ -95,13 +119,15 @@ class PopulatingCache {
 					cacheElem = cacheElem[key][foundIndex]
 					metadataElem =
 						metadataElem[key][foundIndex] ||
-						(metadataElem[key][foundIndex] = {})
+						(metadataElem[key][foundIndex] = {_id: id})
 				} else {
 					if (typeof value !== "object") value = { _id: id, value }
-					if (value && value._id && value._id !== id) {
+					// If value has a different (or missing) ID than what the last element of path declares, then we must correct value here
+					// to satisfy the always valid invariant `cache.put(path, value)  => cache.get(path) = value`
+					if (value && value._id && value._id != id) {
 						console.warn(`WARNING: ID mismatch! You tried to PUT a value under path ${JSON.stringify(path)}. But your value had value._id=${value._id}. I changed this to value._id=${id}`)  // eslint-disable-line
 						// eslint-disable-next-line no-param-reassign
-						value._id = id // We need to change value._id, if user expects to receive that value back via this same path.
+						value._id = id 
 					}
 					if (value && !value._id) {
 						console.warn(`You tried to PUT a value without an _id at path ${JSON.stringify(path)}. I added id=${id}`)  // eslint-disable-line
@@ -127,7 +153,8 @@ class PopulatingCache {
 	}
 
 	/**
-	 * Fetch a value from the cache. If the value isn't in the cache or if it is expired, then the backend will be queried for the value under `path`.
+	 * Fetch a value from the cache. If the value isn't in the cache or if it is expired, 
+	 * then the backend will be queried for the value under `path`.
 	 * If `force==true` then the value will always be queried from the backend.
 	 * When the backend is called, then the returned value will again be stored in the cache and its TTL will be updated.
 	 *
@@ -141,9 +168,9 @@ class PopulatingCache {
 	 * @param {Boolean} force Force calls to backend, even when cache element is not yet expired
 	 * @param {Boolean} populate Automatically populate DBrefs from this cache if possible.
 	 * @returns (A Promise that resolves to) the fetched value. Either directly from the cache or from the backend.
-	 * @rejects When the value couldn't be fetched or there was an API error.
+	 * @rejects When the value couldn't be fetched or there was an API error in your backend.
 	 */
-	async get(path, force = false, populate = true) {
+	async get(path, force = false, populate = this.config.populate) {
 		let cacheElem = this.cacheData || {}
 		let metadataElem = this.cacheMetadata || {}
 		const parsedPath = this.parsePath(path)
@@ -157,51 +184,62 @@ class PopulatingCache {
 			// If path[i] is a plain string, then step into that key.
 			if (key && index === undefined && id === undefined) {
 				cacheElem = cacheElem[key]
-				if (!cacheElem) break // If there is no cacheElem under that key, then immideately call the backend.
-				if (populate && cacheElem.$refPath) {
-					// If cacheElem is a DBref, then populate it.
+				// If there is no cacheElem under that key, then immideately call the backend.
+				if (!cacheElem) break 
+				// If cacheElem is a DBref, then (try to) populate it.
+				if (populate && cacheElem[this.config.referencedPathAttr]) {
 					cacheElem = await this.get(
-						cacheElem.$refPath,
+						cacheElem[this.config.referencedPathAttr],		// path to referenced element in the cache
 						force,
 						populate
 					)
 				}
-				metadataElem = metadataElem ? metadataElem[key] : undefined // And also step into metadata in parallel (may become undefined)
+				// If cacheElem is expired then force fetch it from the backend.
+				// This will PUT the returned value back into the cache with an updated TTL.
+				if (metadataElem && metadataElem[key]) {
+					if (metadataElem[key].ttl < Date.now()) {
+						cacheElem = await this.getOrFetch(path.slice(0,i+1), undefined, undefined, true)  // force fetch
+					}
+					metadataElem = metadataElem[key]
+				}
 			}
 			// If path[i] is a string that defines an array element "key[<number>]" then step into that array element.
 			else if (key && index >= 0 && id === undefined) {
 				cacheElem = cacheElem[key][index]
 				if (!cacheElem) break
-				if (populate && cacheElem.$ref) {
+				if (populate && cacheElem[this.config.referencedPathAttr]) {
 					cacheElem = await this.get(
-						cacheElem.$refPath,
+						cacheElem[this.config.referencedPathAttr],		// path to referenced element in the cache
 						force,
 						populate
 					)
 				}
-				if (!metadataElem[key]) metadataElem[key] = []
-				metadataElem =
-					metadataElem && metadataElem[key]
-						? metadataElem[key][index]
-						: undefined
+				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
+					if (metadataElem[key][index].ttl < Date.now()) {
+						cacheElem = await this.getOrFetch(path.slice(0,i+1), undefined, undefined, true)
+					}
+					metadataElem = metadataElem[key][index]
+				}
 			}
 			// If path[i] was "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
 			else if (key && index === undefined && id) {
 				if (!cacheElem[key]) break
-				const index = cacheElem[key].findIndex((e) => e._id === id) // eslint-disable-line no-shadow
+				const index = cacheElem[key].findIndex((e) => e._id == id) // eslint-disable-line no-shadow
 				if (index === -1) break // if there is no element with a matching _id, then immideately try to query for the full path
 				cacheElem = cacheElem[key][index]
-				if (populate && cacheElem.$ref) {
+				if (populate && cacheElem[this.config.referencedPathAttr]) {
 					cacheElem = await this.get(
-						cacheElem.$refPath,
+						cacheElem[this.config.referencedPathAttr],		// path to referenced element in the cache
 						force,
 						populate
 					)
 				}
-				metadataElem =
-					metadataElem && metadataElem[key]
-						? metadataElem[key][index]
-						: undefined
+				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
+					if (metadataElem[key][index]._ttl < Date.now()) {
+						cacheElem = await this.getOrFetch(path.slice(0,i+1), undefined, undefined, true)
+					}
+					metadataElem = metadataElem[key][index]
+				}
 			} else {
 				throw Error(
 					`Invalid path element ${i}: ${JSON.stringify(path[i])}`
@@ -209,7 +247,7 @@ class PopulatingCache {
 			}
 		}
 
-		// getOrFetch() is not called for elements along the path. We only query the backend for the leaf element at the end of the path once.
+		// 
 		return this.getOrFetch(path, cacheElem, metadataElem, force)
 	}
 
@@ -232,7 +270,7 @@ class PopulatingCache {
 	 * @returns {Promise} element either directly from the cache or fetched from the backend
 	 */
 	async getOrFetch(path, cacheElem, metadata, force) {
-		if (!cacheElem || force || (metadata && metadata.ttl < Date.now())) {
+		if (!cacheElem || force || (metadata && metadata._ttl < Date.now())) {
 			return this.fetchFunc(path).then((res) => {
 				this.put(path, res)
 				return res
@@ -275,14 +313,10 @@ class PopulatingCache {
 			} else if (typeof pathElem === "string") {
 				// If elem is a string, then extract key, and either id or index from it: "key", "key/id" or "key[index]"
 				const match = pathElem.match(pathElemRegEx)
-				if (!match)
-					throw new Error(
-						`Invalid string pathElem path[${i}]="${pathElem}"`
-					)
-				if (match.groups.id && match.groups.index)
-					throw new Error(
-						`Cannot use index and id at the same time in path[${i}]${pathElem}`
-					)
+				if (!match)	
+					throw new Error(`Invalid string pathElem path[${i}]="${pathElem}"`)
+				if (match.groups.id && match.groups.index) 
+					throw new Error(`Cannot use index and id at the same time in path[${i}]${pathElem}`)
 				result[i] = {
 					key: match.groups.key,
 					id: match.groups.id, // may also be undefined for plain string keys
@@ -298,10 +332,11 @@ class PopulatingCache {
 				result[i] = {
 					key: Object.keys(pathElem)[0],
 					id: Object.values(pathElem)[0],
+					index: undefined
 				}
 			} else {
 				throw new Error(
-					`Cannot parse path. Invalid pathElem path[${i}]=${pathElem}`
+					"Cannot parse path. Invalid pathElem path["+i+"]="+JSON.stringify(pathElem)
 				)
 			}
 		}
@@ -355,6 +390,9 @@ class PopulatingCache {
 			}
 			// If path[i] was "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
 			else if (key && index === undefined && id) {
+				const index = metadataElem[key].findIndex((e) => e._id === id)
+				// if there is no metadataElem with a matching _id, then immideately return undefined
+				if (index === -1) return undefined 				
 				metadataElem = metadataElem[key][index]
 			} else {
 				throw Error(
@@ -381,27 +419,6 @@ class PopulatingCache {
 		// TODO: recursively walk the cache and delete expired elements
 	}
 	*/
-
-	/**
-	 * Check if we need to call the backend for this cacheElem.
-	 *  - If cacheElem is undefined or null then of course we must call the backend.
-	 *  - If cacheElem exists and is not the last elem in path (the leaf), then do NOT call the backend.
-	 *    We only call the backend for leafs in the path.
-	 *  - If cacheElem is expired, ie. its TTL is in the past, the call the backend.
-	 *  - Otherwise cacheElem exists and is not expired. Then call the backend depending on the `force` value.
-	 *
-	 * @param {Number} i Index in path
-	 * @param {Array} path Path along the tree of entities. The leaf of this path shall be fetched.
-	 * @param {Boolean} force Force call to backend. Skip the cache
-	 * @param {Object} cache subtree of this.cacheData for element path[i]
-	 * @param {Object} metadata subtree of this.cacheMetadata for element path[i]
-	 */
-	shouldCallBackend(i, path, force, cacheElem, metadata) {
-		if (!cacheElem) return true
-		if (i < path.length - 1) return false // do not call backend on in-between elements along path. Only call backend on last element in path
-		if (metadata && metadata.ttl < Date.now()) return true
-		return force
-	}
 
 	/**
 	 * Convert the given path to a REST URL path.
