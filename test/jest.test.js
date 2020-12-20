@@ -65,7 +65,7 @@ test.each([
 	})
 })
 
-test("GET of unkonw value should call backend", () => {
+test("GET of unknown value should call backend", () => {
 	const value = "valueFromServer"
 	const fetchFunc = jest.fn(() => Promise.resolve(value))
 	const cache = new PopulatingChache(fetchFunc)
@@ -137,7 +137,7 @@ test("TTL is checked correctly, when populating a path", async () => {
 })
 
 
-test("Force = true should call the backend", async () => {
+test("Force call to backend", async () => {
 	const path = ["fooKey"]
 	const value = { _id: 42, text: "this is comment 42" }
 	const fetchFunc = jest.fn(() => Promise.resolve(value))
@@ -150,11 +150,37 @@ test("Force = true should call the backend", async () => {
 	expect(fetchFunc.mock.calls.length).toBe(0)
 
 	// GET with force = true should call backend
-	const res2 = await cache.get(path, true)
+	const res2 = await cache.get(path, cache.FORCE_BACKEND_CALL)
 	expect(res2).toEqual(value)
 	expect(fetchFunc.mock.calls.length).toBe(1)
 	expect(fetchFunc.mock.calls[0][0]).toEqual(path) // first argument of first call should be path
 })
+
+test("Check if value is already in cache", async () => {
+	// GIVEN a value in the cache
+	const path = ["parnetKey", "childKey"]
+	const value = "bar"
+	const fetchFunc = jest.fn(() => Promise.reject("Should not be called. Only check if value is in cache."))
+	const cache = new PopulatingChache(fetchFunc)
+	cache.put(path, value)
+
+	// WHEN we check if that value is in the cache
+	const res1 = await cache.isInCache(path)
+
+	// THEN this is true AND backend has not been called
+	expect(res1).toEqual(true)
+	expect(fetchFunc.mock.calls.length).toBe(0)
+
+	// WHEN we delete that value
+	cache.delete(path)
+
+	// THEN is is not in the cache anymore
+	const res2 = await cache.isInCache(path)
+	expect(res2).toEqual(false)
+	expect(fetchFunc.mock.calls.length).toBe(0)
+})
+
+
 
 test("Expired elements should be fetched from the backend", async () => {
 	const path = ["fooKey"]
@@ -214,6 +240,26 @@ test("Element with expired parent should be fetched from the backend", async () 
 	expect(res2).toEqual(commentNewValue)
 	expect(fetchFunc.mock.calls.length).toBe(1)
 	expect(fetchFunc.mock.calls[0][0]).toEqual(postPath) // first argument of first (and only) call to fetchFunc should have been postPath
+})
+
+test("delete expired elems in the cache", async () => {
+	const fetchFunc = jest.fn(() => Promise.reject("should not be called in deleteExpiredElems test"))
+	const cache = new PopulatingChache(fetchFunc)
+
+	//GIVEN
+	cache.put("key1", "val1")
+	cache.put("key2", "val2")
+
+	//WHEN Set TTL of key2 to way in the past
+	const metadata = cache.getMetadata("key2")
+	metadata._ttl = 1
+	// AND 
+	cache.deleteExpiredElems()
+
+	//THEN key1 should still be in the cache and key2 should be deleted
+	const res1 = await cache.get("key1")
+	expect(res1).toEqual("val1")
+	expect(fetchFunc.mock.calls.length).toBe(0)
 })
 
 
