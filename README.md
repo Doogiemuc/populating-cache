@@ -65,38 +65,56 @@ cache.put(["post/af3d-e3ff", "tags"], ["tag1", "tag2"])
 
 When you `get` something from the cache, you will receive that cache element and everything under it.
 
+![Cache tree example](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/Doogiemuc/populating-cache/main/docs/populating-cache-example1.plantuml)
+
 ## Path into the cache
 
-A `path` defines where a value will be stored in the cache. It is an *array of path elements* from the root of the cache to the value. Each path element can be 
+A `path` defines where a value will be stored in the cache. It is an *array of path elements* from the root of the cache to the value. 
+
+When you call `put(path, value)` then the algorithm walks along `path` and stores `value` at the end of the path. All intermidate elements along the path (objects & arrays) will automatically be created. 
+
+
+Each path element must be one of:
 
  * a plain string. Value will be stored under that key, e.g. `"childKey"`
  * an array with index. Value will be stored in this array element, e.g. `"array[7]"`
  * a string in the format `key/_id`, e.g. `"posts/af3d-e3ff"`. Value will be stored under the array element with that `_id` (The name of your `_id`-attribute can be configured)
- * or an object for the same purpose, e.g. `{posts: af3d-e3ff}`
+ * or an object for the same purpose, e.g. `{posts: "af3d-e3ff"}`
 
 ```javascript
-cache.put(["keyOne"], value)                      // Just one string key on top level
+cache.put(["someKey"], value)                      // Just one string key on top level
 cache.put(["parentKey", "childKey"], value)       // value will be stored under cache.parentKey.childKey
 cache.put(["parentKey", "childArray[3]"], value)  // cache.parentKey.childArray[3] = value
 
 // Populting-Cache can automatically find array items by their _id and store values under this item.
 // Creator of comment with id "ef37d" in post with id "id42"
 // (Here we store a user object in the cache.)
-cache.put(["posts/id42", "comments/ef37d", "createdBy"], {_id:"d55e", name: "John Doe", email: "john@doe.com"}) 
+cache.put(["posts/af3d-e3ff", "comments/4ccf-ff33", "createdBy"], {_id:"14a3-2e2f", name: "John Doe", email: "john@doe.com"}) 
 
 // Path elements can also be objects. This results in the same path as the example above.
-cache.put([{posts:"id42"}, {comments:"ef37d"}, "createdBy"], user)
+cache.put([{posts:"af3d-e3ff"}, {comments:"4ccf-ff33"}, "createdBy"], user)
 ```
-
-![Cache tree example](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/Doogiemuc/populating-cache/main/docs/populating-cache-example1.plantuml)
-
- 
-When you call `put(path, value)` then the algorithm walks along `path` and stores `value` at the end of the path. All intermidate elements along the path (objects & arrays) will automatically be created. 
 
 ## Time to life (TTL)
 
 When you `put` a value into the cache, then metadata about that value will also be stored. Each value can have a time to life after which it expires. When you try to `get` and expired value,
 then it is be refetched from the backend. When a value is expired, then also all its children are considered to be expired. (But not referenced entities. They have their own TTL.)
+
+```javascript
+cacheMetadata = {
+	"posts": [...],
+	"users": [
+		{
+			_id: 901,
+			ttl: 1456  //  <= EXPIRED!
+		},
+		{
+			_id: 902,
+			ttl: 25263426457// +5 days
+		},
+	]
+}
+```
 
 ## Populate DB references (DBref)
 
@@ -136,31 +154,17 @@ But the createdBy-user is not stored again and again for every comment. Instead,
 When a path in a call to `get(path)` spans a DBref, then this ref is automatically resolved:
 
 ```javascript
-	let path = [{posts:4711}, {comments: 101}, "createdBy", "email"]
-	let result = cache.get(path)		
-	// result is now "user1@domain.com"
+  let path = [{posts:4711}, {comments: 101}, "createdBy", "email"]
+  let result = await cache.get(path) 
+  // result is now "user1@domain.com"
 ```
 
 When a DBref is resolved, then of course the TTL of the referenced target entity (in our example `user/901`) is taken into account. If that user's data in the cache is expired, then a query for that user will be sent to the backend. The response of the backend will be used to update the user data in the cache. The TTL in the metadata will be refreshed. And this updated data will be used to populate the DBref.
 
-```javascript
-cacheMetadata = {
-	"posts": [...],
-	"users": [
-		{
-			_id: 901,
-			ttl: 1456  //  <= EXPIRED!
-		},
-		{
-			_id: 902,
-			ttl: 25263426457// +5 days
-		},
-	]
-}
-```
 
-<div style="border: 1px solid #F99; padding: 5px">
-Population does not change the DBref element. In the cache, the DBref will not be replaced by the referenced data. Only the value returned by `get(path)` will contain the resolved reference.
+
+<div style="border: 1px solid #F99; padding: 5px; margin-bottom: 10rem;">
+Population does not change the $refPath nor the referenced element in the cache. Only the value returned by `get(path)` will contain the resolved child elements.
 </div>
 
 # API
