@@ -1,6 +1,6 @@
 # Populating-Cache - JS client side cache
 
-Efficient JavaScript client side cache. When data is fetched from a backend then it can be cached locally, for example in an App that's running on a mobile device.
+Efficient JavaScript client side cache. When data is fetched from a backend then it can be cached locally, for example for an App that's running on a mobile device.
 
 [![Build Status](https://travis-ci.com/Doogiemuc/populating-cache.svg?branch=main)](https://travis-ci.com/Doogiemuc/populating-cache)
 [![GitHub license](https://img.shields.io/github/license/Naereen/StrapDown.js.svg)](https://github.com/Naereen/StrapDown.js/blob/master/LICENSE)
@@ -8,30 +8,34 @@ Efficient JavaScript client side cache. When data is fetched from a backend then
 
 ## Features
 
- * On the client data is locally stored in an in-memory cache (which is a plain JavaScript object)
+ * Cache data is locally stored in an in-memory cache (which is a plain JavaScript object)
  * Values in the cache may be anything you can store in a JavaScript variable: Strings, Arrays or JSON Objects.
  * Every value you put into the cache can have a limited time to life. If that TTL expires, then the value will be refetched from the backend.
  * Populating-Cache is not just a simple key=value store. Values can be stored under any [path](#path-into-the-cache).
- * A value may reference other values in the cache via their path, e.g. `posts[42].createdBy` may reference a `user` entity. These Database references (DBref) can automatically be populated when getting values from the cache.
+ * A value may reference other values in the cache via their path, e.g. `posts[42].createdBy` may reference a `User` entity. These database references (DBref) can automatically be populated when getting values from the cache.
  * Populating cache is 100% tested and highly configurable.
 
 ## Simple usage
 
 Install the npm dependency in your project: `npm install populating-cache`
 
-
 #### helloWorld.js
 ```javascript
 import PopulatingCache from 'populating-cache'  // the module exports a class
 
-// When a value needs to be fetched from the backend then Populating-Cache will call 
-// this function that you must provide.
+/**
+ * When a value needs to be fetched from the backend 
+ * then populating-cache will call this function that you must provide.
+ * @param {Array} path to the value that needs to be fetched,
+ *                e.g. ["posts/ad4e-45fd", "comments"]
+ * @return {Promise} value fetched from the backend
+ */
 let fetchFunc = function(path) {
-	// [...] call backend, make REST request, etc.
-	return Promise.resolve(valueFetchedFromBackend)
+  // [...] call backend, make REST request, etc.
+  return Promise.resolve(valueFetchedFromBackend)
 }
 
-// Create a new cache intance.
+// Create a new cache intance
 let cache = new PopulatingCache(fetchFunc)
 
 // PUT a value into the cache under a given key.
@@ -40,26 +44,38 @@ cache.put("someKey", "Just any value")
 // GET that value back from the cache.
 let value = await cache.get("someKey")
 
-// get() will call the backend if the value under a key is expired or not in the cache at all.
+// get() will call fetchFunc() if the value under that path 
+// is expired or not in the cache at all.
 // Therefore get() is an asynchrounous function. It returns a Promise.
-// When a value is fetched from the backend, then it is cached automatically.
+// When a value is fetched from the backend, 
+// then it is automatically cached for future get calls.
 let valueFromBackend = await cache.get("key2")
 ```
 
-
-
 ## Populating cache is a tree structure
 
-Many caches only store values under keys (or ids). `Populating-Cache` stores values in a tree structure. The cached elements in this tree are identified by the path from the root of the tree to that element.
-The values that are stored in the cache (normally) sit at the leaves of this tree.
+You can simply store values under String keys. `Populating-Cache` can also store values in a tree structure. The cached elements in this tree are identified by the path from the root of the tree to that element.
+Values in the cache (normally) sit at the leaves of this tree.
 
+Example: Cache the tags of post with `_id="af3d-e3ff"`. If a post with that `_id` does not yet exist, then it will automatically be created in the cache.
+
+```javascript
+cache.put(["post/af3d-e3ff", "tags"], ["tag1", "tag2"])
+```
+
+When you `get` something from the cache, you will receive that cache element and everything under it.
 
 ## Path into the cache
 
-A `path` defines where a value will be stored in the cache. It is an array of path elements from the root of the cache to the value. A Path for example looks like this:
+A `path` defines where a value will be stored in the cache. It is an *array of path elements* from the root of the cache to the value. Each path element can be 
+
+ * a plain string. Value will be stored under that key, e.g. `"childKey"`
+ * an array with index. Value will be stored in this array element, e.g. `"array[7]"`
+ * a string in the format `key/_id`, e.g. `"posts/af3d-e3ff"`. Value will be stored under the array element with that `_id` (The name of your `_id`-attribute can be configured)
+ * or an object for the same purpose, e.g. `{posts: af3d-e3ff}`
 
 ```javascript
-cache.put(["keyOne"], val)                        // Just one string key on top level
+cache.put(["keyOne"], value)                      // Just one string key on top level
 cache.put(["parentKey", "childKey"], value)       // value will be stored under cache.parentKey.childKey
 cache.put(["parentKey", "childArray[3]"], value)  // cache.parentKey.childArray[3] = value
 
@@ -69,22 +85,18 @@ cache.put(["parentKey", "childArray[3]"], value)  // cache.parentKey.childArray[
 cache.put(["posts/id42", "comments/ef37d", "createdBy"], {_id:"d55e", name: "John Doe", email: "john@doe.com"}) 
 
 // Path elements can also be objects. This results in the same path as the example above.
-cache.put([{posts:"id42"}, {comments:"ef37d"}, "createdBy"], { ... })
+cache.put([{posts:"id42"}, {comments:"ef37d"}, "createdBy"], user)
 ```
 
-Each path must have at least one element. Each path element can be
+![Cache tree example](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/Doogiemuc/populating-cache/main/docs/populating-cache-example1.plantuml)
 
- * a plain string which will be used as key (ie. object attribute in the cache object)
- * name of an array and array-index in brackets: value will be stored in (or under) this array element
- * a string in the format `"key/id"`. Value will be stored under the array element with that `_id` (Name of "`_id`"-key can be configured)
- * or object `{key: id}`
-
+ 
 When you call `put(path, value)` then the algorithm walks along `path` and stores `value` at the end of the path. All intermidate elements along the path (objects & arrays) will automatically be created. 
 
 ## Time to life (TTL)
 
 When you `put` a value into the cache, then metadata about that value will also be stored. Each value can have a time to life after which it expires. When you try to `get` and expired value,
-then it is be refetched from the backend. When a value is expired, then also its children are considered to be expired. (But not referenced entities. They have their own TTL.)
+then it is be refetched from the backend. When a value is expired, then also all its children are considered to be expired. (But not referenced entities. They have their own TTL.)
 
 ## Populate DB references (DBref)
 
@@ -94,27 +106,27 @@ When GET-ing a value from the cache, then DBrefs can automatically be resolved f
 
 ```javascript
 cacheMetadata = {
-	"posts": [
-		{
-			_id: 4711,
-			text: "This is an example post"
-			comments: [
-				{ 
-					_id: 101, 
-					commentText: "This is a comment by user1", 
-					createdBy: {				
-						$refPath: "users/901"	// referenced `path` to other entity in cache
-					}
-				}
-			]
-		}
-	],
-	"users": [
-		{	// This is the referenced user
-			_id: 901,
-			email: "user1@domain.com"
-		},
-	]
+  "posts": [
+    {
+      _id: 4711,
+      text: "This is an example post"
+      comments: [
+        { 
+          _id: 101, 
+          commentText: "This is a comment by user1", 
+          createdBy: {
+            $refPath: "users/901"	// referenced `path` to other entity in cache
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    { // This is the referenced user
+      _id: 901,
+      email: "user1@domain.com"
+    },
+  ]
 }
 ```
 

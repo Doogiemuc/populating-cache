@@ -1,0 +1,9 @@
+@startwbs
+*[#SkyBlue] Populating-Cache instance
+** posts[]
+*** {_id:"af3d-e3ff"\ntitle: "Post with tags"}
+**** tags: ["tag1", "tag2"]
+** someKey
+*** "Just any value" 
+** users[]
+@endwbs
