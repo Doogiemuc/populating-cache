@@ -8,18 +8,19 @@ Efficient JavaScript client side cache. When data is fetched from a backend then
 
 ## Features
 
- * Cache data is locally stored in an in-memory cache (which is a plain JavaScript object)
- * Values in the cache may be anything you can store in a JavaScript variable: Strings, Arrays or JSON Objects.
- * Every value you put into the cache can have a limited time to life. If that TTL expires, then the value will be refetched from the backend.
- * Populating-Cache is not just a simple key=value store. Values can be stored under any [path](#path-into-the-cache).
- * A value may reference other values in the cache via their path, e.g. `posts[42].createdBy` may reference a `User` entity. These database references (DBref) can automatically be populated when getting values from the cache.
- * Populating cache is 100% tested and highly configurable.
+-   Cache data is locally stored in an in-memory cache (which is a plain JavaScript object)
+-   Values in the cache may be anything you can store in a JavaScript variable: Strings, Arrays or JSON Objects.
+-   Every value you put into the cache can have a limited time to life. If that TTL expires, then the value will be refetched from the backend.
+-   Populating-Cache is not just a simple key=value store. Values can be stored under any [path](#path-into-the-cache).
+-   A value may reference other values in the cache via their path, e.g. `posts[42].createdBy` may reference a `User` entity. These database references (DBref) can automatically be populated when getting values from the cache.
+-   Populating cache is 100% tested and highly configurable.
 
 ## Simple usage
 
 Install the npm dependency in your project: `npm install populating-cache`
 
 #### helloWorld.js
+
 ```javascript
 import PopulatingCache from 'populating-cache'  // the module exports a class
 
@@ -38,14 +39,27 @@ let fetchFunc = function(path) {
 // Create a new cache intance
 let cache = new PopulatingCache(fetchFunc)
 
-// PUT a value into the cache under a given key.
-cache.put("someKey", "Just any value")
-
-// GET that value back from the cache.
+// PUT values into the cache and store them for later
+cache.put("key1", "Just any value")
+cache.put("key2", {foo: "bar"} )
+cache.put("key3", [1,2,"three"] )
+// GET a value back from the cache:
 let value = await cache.get("someKey")
 
-// get() will call fetchFunc() if the value under that path 
-// is expired or not in the cache at all.
+// store one array item
+cache.put("array[4]", "fifth item") 
+let arrayItem = await get("array[4]")
+let fullArray = await get("array")
+
+// Store a value with an _id in an array
+cache.put("posts/4711", { _id:4711, title: "Blog post title"})
+// If the passed value does not have an _id property,
+// then populating-cache will automatically add the _id from the path,
+// so that you can always receive the value back under that same path:
+let post = await cache.get("posts/4711")
+
+// get(path) will automatically call fetchFunc(path) if there is 
+// no value or an expired value under that path.
 // Therefore get() is an asynchrounous function. It returns a Promise.
 // When a value is fetched from the backend, 
 // then it is automatically cached for future get calls.
@@ -54,7 +68,7 @@ let valueFromBackend = await cache.get("key2")
 
 ## Populating cache is a tree structure
 
-You can simply store values under String keys. `Populating-Cache` can also store values in a tree structure. The cached elements in this tree are identified by the path from the root of the tree to that element.
+You may simply store values under String keys. But `Populating-Cache` can also store values in a tree structure. The cached elements in this tree are identified by the path from the root of the tree to that element.
 Values in the cache (normally) sit at the leaves of this tree.
 
 Example: Cache the tags of post with `_id="af3d-e3ff"`. If a post with that `_id` does not yet exist, then it will automatically be created in the cache.
@@ -69,21 +83,21 @@ When you `get` something from the cache, you will receive that cache element and
 
 ## Path into the cache
 
-A `path` defines where a value will be stored in the cache. It is an *array of path elements* from the root of the cache to the value. 
-
-When you call `put(path, value)` then the algorithm walks along `path` and stores `value` at the end of the path. All intermidate elements along the path (objects & arrays) will automatically be created. 
-
+A `path` defines where a value will be stored in the cache. It is an _array of path elements_ from the root of the cache to the position of value in the cache. When you call `put(path, value)` then the algorithm walks along `path` and and then stores `value` at the end of this path. All intermediate elements along the path (objects & arrays) will automatically be created if necessary.
 
 Each path element must be one of:
 
- * a plain string. Value will be stored under that key, e.g. `"childKey"`
- * an array with index. Value will be stored in this array element, e.g. `"array[7]"`
- * a string in the format `key/_id`, e.g. `"posts/af3d-e3ff"`. Value will be stored under the array element with that `_id` (The name of your `_id`-attribute can be configured)
- * or an object for the same purpose, e.g. `{posts: "af3d-e3ff"}`
+-   a plain string. Value will be stored under that key, e.g. `"childKey"`
+-   an array with index. Value will be stored in this array element, e.g. `"array[7]"`
+-   a string in the format `key/_id`, e.g. `"posts/af3d-e3ff"`. Value will be stored under the array element with that `_id` (The name of your `_id`-attribute can be configured)
+-   or an object for the same purpose, e.g. `{posts: "af3d-e3ff"}`
+
+When you `put` a value in the cache, then the last element in the path may be the name of an array with brackets, e.g. `myArray[]`. This means: _Append_ value to the end of `myArray`.
+
+## Examples for usage of path
 
 ```javascript
-cache.put(["someKey"], value)                      // Just one string key on top level
-cache.put(["parentKey", "childKey"], value)       // value will be stored under cache.parentKey.childKey
+// Store value under a path
 cache.put(["parentKey", "childArray[3]"], value)  // cache.parentKey.childArray[3] = value
 
 // Populting-Cache can automatically find array items by their _id and store values under this item.
@@ -161,11 +175,66 @@ When a path in a call to `get(path)` spans a DBref, then this ref is automatical
 
 When a DBref is resolved, then of course the TTL of the referenced target entity (in our example `user/901`) is taken into account. If that user's data in the cache is expired, then a query for that user will be sent to the backend. The response of the backend will be used to update the user data in the cache. The TTL in the metadata will be refreshed. And this updated data will be used to populate the DBref.
 
-
-
-<div style="border: 1px solid #F99; padding: 5px; margin-bottom: 10rem;">
-Population does not change the $refPath nor the referenced element in the cache. Only the value returned by `get(path)` will contain the resolved child elements.
+<div style="border: 1px solid #33F; padding: 5px; margin-bottom: 5rem;">
+Population does not change the $refPath property nor the referenced element in the cache. Only the value returned by `get(path)` will contain the resolved child elements.
 </div>
+
+# Advanced Usage
+
+### Merge properties into existing values
+
+```javascript
+put("key", { foo: "bar"})
+put("key", { baz: "boo"}, { merge: true}) // Will throw an error if cache[key] is not an object.
+```
+
+### Store arrays and work with array items
+
+```javascript
+// Cache an array
+put("array", ["one", "two", "three"])
+// Replace the third element of array with "item2"
+// This will create the array if necessary.
+// and throw an error if "array" is not an array.
+put("array[2]", "item2")
+// replace the third element of array with an object
+put("array[2]", { foo: "bar"})
+// merge property "baz" into the third element of array.
+put("array[2]", { baz: "boo"}, { merge: true})
+// Array now looks like this:
+assert.equals(await cache.get("array"), ["one", "two", {
+	foo: "bar",
+	baz: "boo"
+}])
+
+// Append "item" to array. 
+// Will create a new array if necessary.
+// Will throw an error if "array" is an object.
+put("array[]", "item" )
+// Be carefull, don't forget the brackets! This would store the String value "item"
+// under the key "array" and replace your array. This is most probably not what you want.
+put("array", "item" )
+// You can also pass append: true as an option
+put("array[]", "item", { append: true} )
+put("array", "item", { append: true} )    // this is ok, but not recommended
+```
+
+### Working with object ids
+
+```javascript
+// Example: User created a new comment under a blog post
+let newComment = {_id:42, text:"This is a comment"}
+// Append newComment to array of comments of post with _id = 4711
+put(["posts/4711", "comments[]"], newComment)
+// This will throw an id-mismatch error, because newComment has _id=42 and not 9999
+put(["posts/4711", "comments/9999"], newComment)
+// Will implicitly add _id:42 to the passed value.
+put(["posts/4711", "comments/42"], {text: "just something"})
+// Merge property "baz" into existing comment with _id = 42
+put(["posts/4711", "comments/42"], {baz:"boo"}, {merge:true})
+```
+
+Object IDs can be numeric or alphanumeric UUIDs. The name of the `_id` property can be configured.
 
 # API
 
@@ -183,30 +252,30 @@ Population does not change the $refPath nor the referenced element in the cache.
         -   [Parameters](#parameters-3)
     -   [delete](#delete)
         -   [Parameters](#parameters-4)
-    -   [getCacheData](#getcachedata)
-    -   [getCacheMetadata](#getcachemetadata)
-    -   [emptyCache](#emptycache)
-    -   [expireOldTtls](#expireoldttls)
-    -   [shouldCallBackend](#shouldcallbackend)
+    -   [isInCache](#isincache)
         -   [Parameters](#parameters-5)
-    -   [path2rest](#path2rest)
+    -   [getCacheData](#getcachedata)
+    -   [getMetadata](#getmetadata)
         -   [Parameters](#parameters-6)
+    -   [emptyCache](#emptycache)
+    -   [deleteExpiredElems](#deleteexpiredelems)
+    -   [parsePath](#parsepath)
+        -   [Parameters](#parameters-7)
+    -   [path2rest](#path2rest)
+        -   [Parameters](#parameters-8)
+-   [DEFAULT_CONFIG](#default_config)
 
 ## PopulatingCache
 
-Doogies unbelievably clever implementation of a client side cache.
+Populating Cache
 
-    cache.get("cachedPrimitive")							// => 4711
-    cache.get("posts")												// => Anything thats cached under object key "posts", e.g. the Array of posts
-    cache.get(["posts", "category"])					// => returns this.cache.posts.category  (one value)
-    cache.get(["usersById", "4711"])					// => the this.cache.userById["4711"]
-    cache.get([{posts: 1}])											// <= the post with id 1 from the array of posts
-    cache.get([{posts: 5}, {comments: "adfbe435d"}, "createdBy", "email"])		// walk the tree and populate all necessary references
+A lightweight client side cache that can store values in a tree structure.
+<https://github.com/doogiemuc/populating-cache>
 
 ### Parameters
 
--   `fetchFunc`  
--   `config`  
+-   `fetchFunc` **[Function](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Statements/function)** async function that will be called to fetch elements from the backend. One param: _path_
+-   `config` **[Object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** configuration parameters that may overwrite the DEFFAULT_CONFIG
 
 ### put
 
@@ -219,26 +288,29 @@ Then `value` is stored as the leaf at the end of path with the given `ttl` or th
 -   `path` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** path under which the `value` shall be stored in the cache
 -   `value` **Any** The value to store in the cache.
 -   `ttl` **[Number](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number)** time to live / how long value can be stored in the cache. Defaults to config.defaultTTLms (optional, default `this.config.defaultTTLms`)
+-   `merge`   (optional, default `false`)
 
 Returns **[Object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** the cache instance, so that calls to put() can be chained: `myCache.put("foo", "bar").put("foo2", "baz2")`
 
 ### get
 
-Fetch a value from the cache. If the value isn't in the cache or if it is expired, then the backend will be queried for the value under `path`.
-If `force==true` then the value will always be queried from the backend.
+Fetch a value from the cache. If the value isn't in the cache or if it is expired, 
+then the backend will be queried for the value under `path`.
+
 When the backend is called, then the returned value will again be stored in the cache and its TTL will be updated.
 
 #### Parameters
 
--   `path`  array that forms the path to the value that shall be fetched. 
-        Each array element can be one of three formats: 
+-   `path` **([String](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String) \| [Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array))** array that forms the path to the value that shall be fetched.
+        Each array element can be one of three formats:
           \- a plain "attributeName" for object properties in the cache.
           \- { arrayAttr: "abde3f"} for the array element with that id.
-          \- "array[index]" for array elements. Index must be a positive. 
+          \- "array[index]" for array elements. Index must be a positive.
         For example: [{posts:5}, {comments:42}] is the comment with id 42 of the post with id 5
         For a REST backend this can be translated to the REST resource at  /posts/5/comments/42
--   `force`  Force calls to backend, even when cache element is not yet expired (optional, default `false`)
--   `populate`  Automatically populate DBrefs from this cache if possible. (optional, default `true`)
+-   `callBackend`   (optional, default `this.CALL_BACKEND_WHEN_EXPIRED`)
+-   `populate` **[Boolean](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Boolean)** Automatically populate DBrefs from this cache if possible. (optional, default `this.config.populate`)
+-   `force` **[Boolean](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Boolean)** Force calls to backend, even when cache element is not yet expired
 
 Returns **any** (A Promise that resolves to) the fetched value. Either directly from the cache or from the backend.
 
@@ -249,66 +321,82 @@ The backend will be called, IF
 
 -   cacheElem is null, ie. not yet in the cache
 -   cacheElem is expired, because its metadata.ttl is in the past.
--   or when force === true
+-   or when callBackend === FORCE_BACKEND_CALL
 
 When the backend is call, then the returned value is PUT() back into the cache
 with and updated TTL.
 
-This method will only be called for leaf elements at the end of path. We never query for "in between" elements along a path.
-
 #### Parameters
 
 -   `path` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** The full path to cacheElem
--   `cacheElem` **any** the leaf element at the end of path or null if not in the cache yet
--   `metadata` **any** metadata for cacheElem
--   `force` **any** always call backend if true
+-   `cacheElem` **Any** the leaf element at the end of path or null if not in the cache yet
+-   `metadata` **[Object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** metadata for cacheElem
+-   `callBackend` **[Number](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number)** always call backend if true
+
+Returns **[Promise](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Promise)** element either directly from the cache or fetched from the backend
 
 ### delete
 
 Delete an element from the cache. It's value will be set to undefined.
+If path points to an array element, then that array element will be set to 
+undefined, so that the length of the array does not change.
 
 #### Parameters
 
 -   `path` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** path to the element that shall be deleted
+
+### isInCache
+
+Check if a path points to a defined and not yet expired value in the cache.
+If the value is expired, the backend will not be called.
+If path points to an `undefined` value, then isInCache will return false.
+
+#### Parameters
+
+-   `path` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** path to an element in the cache
+-   `populate` **[Boolean](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Boolean)** wether to populate DBrefs along path (optional, default `this.config.populate`)
+
+Returns **[Boolean](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Boolean)** true if there is a value in the cache and it is not yet expired.
 
 ### getCacheData
 
 Get (a direct reference!) to all the data in the cache.
 The cacheData is exactly as returned by `fetchFunc(path)`
 
-### getCacheMetadata
+### getMetadata
 
-While you `put` values into the cache, populating cache automatically
+While you `put` values into the cache, Populating-Cache automatically
 creates a second parallel tree of metadata next to the `cacheData`.
-The metadata contains the time to life TTL for each leave element.
+The metadata contains the time to life (TTL) of the value in the cache.
+`_ttl` is the number of milliseconds since the epoc, when the value expires.
+
+#### Parameters
+
+-   `path` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** fetch metadata of a specific element. If null or undefind, that all metadata of the whole cache is returned.
+
+Returns **[Object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** metadata of cached value under path, e.g. { \_ttl: 55235325000, \_type: "Integer"}
 
 ### emptyCache
 
-Completely empty the cache. This also clears out all metadata.
+Completely empty out the cache. This also clears out all metadata.
 
-### expireOldTtls
+### deleteExpiredElems
 
 Recursively walk through the cacheData and delete all expired elements.
 You MAY call this from time to time to optimize the cache's memory consumption
 
-### shouldCallBackend
+### parsePath
 
-Check if we need to call the backend for this cacheElem.
-
--   If cacheElem is undefined or null then of course we must call the backend.
--   If cacheElem exists and is not the last elem in path (the leaf), then do NOT call the backend.
-    We only call the backend for leafs in the path.
--   If cacheElem is expired, ie. its TTL is in the past, the call the backend.
--   Otherwise cacheElem exists and is not expired. Then call the backend depending on the `force` value.
+Parse a path into an array of { key, id, index } objects.
 
 #### Parameters
 
--   `i` **[Number](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number)** Index in path
--   `path` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** Path along the tree of entities. The leaf of this path shall be fetched.
--   `force` **[Boolean](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Boolean)** Force call to backend. Skip the cache
--   `cacheElem`  
--   `metadata` **[Object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** subtree of this.cacheMetadata for element path[i]
--   `cache` **[Object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** subtree of this.cacheData for element path[i]
+-   `path` **([String](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String) \| [Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array))** plain string or array of path elements
+
+
+-   Throws **any** an Error when path or a path element is invalid
+
+Returns **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** Array of parsed objects { key, id, index }. `id` or `index` may be undefind in each path element.
 
 ### path2rest
 
@@ -317,3 +405,8 @@ Convert the given path to a REST URL path.
 #### Parameters
 
 -   `path` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** a populating-cache path array
+
+## DEFAULT_CONFIG
+
+Default configuration for a cache. You can overwrite these when creating a new PopulatingCache instance.
+Each cache instance can have its own configuration.

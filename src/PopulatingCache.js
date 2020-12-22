@@ -4,34 +4,6 @@
  * A lightweight client side cache that can store values in a tree structure.
  * https://github.com/doogiemuc/populating-cache
  */
-
-/**
- * Default configuration for a cache. You can overwrite these when creating a new PopulatingCache instance.
- * Each cache instance can have its own configuration.
- */
-const DEFAULT_CONFIG = {
-	// one minute
-	defaultTTLms: 60 * 1000,
-
-	// Should get() return cloned values or direct references to the attribute from the cache
-	returnClones: false,
-
-	// Should referenced pathes automatically be resolved and populated by default. This default can be overriden when calling `GET()`.
-	populate: true,
-
-	//TODO: Name of _id attribute used when looking up `entity/febb3` or `user/42`
-	idAttr: "_id",
-
-	// Name of the JSON attribute that marks a referenced path (DBRef), e.g. `createdByUser: { $refPath: "users/4711" }`
-	referencedPathAttr: "$refPath"
-}
-
-/* Unbelievably clever RegEx to extract {key, id, index} from path elements of type string :-) */
-const pathElemRegEx = /^(?<key>[a-zA-Z_$][0-9a-zA-Z-_$]*)(\[(?<index>\d+)\])?(\/(?<id>[0-9a-zA-Z_$][0-9a-zA-Z-_$]*))?$/
-
-/**
- * Clever implementation of a client side cache.
- */
 class PopulatingCache {
 	// private "fields"
 	//   cacheData - the cached data
@@ -53,13 +25,13 @@ class PopulatingCache {
 		// When to call the backend in get() calls
 
 		// always call backend for fresh value
-		this.FORCE_BACKEND_CALL = 1    
+		this.FORCE_BACKEND_CALL = 1
 
 		// call backend for not yet cached or expired values (this is the default)
-		this.CALL_BACKEND_WHEN_EXPIRED = 0  
+		this.CALL_BACKEND_WHEN_EXPIRED = 0
 
 		// do not call the backend for this get() call. This is used to check if a value is already in the cache.
-		this.DO_NOT_CALL_BACKEND = -1    
+		this.DO_NOT_CALL_BACKEND = -1
 	}
 
 	/**
@@ -69,12 +41,13 @@ class PopulatingCache {
 	 *
 	 * @param {Array} path path under which the `value` shall be stored in the cache
 	 * @param {Any} value The value to store in the cache.
-	 * @param {Number} ttl time to live / how long value can be stored in the cache. Defaults to config.defaultTTLms
+	 * @param {Object} options Override default configuration options, e.g. ttl or merge properties
 	 * @returns {Object} the cache instance, so that calls to put() can be chained: `myCache.put("foo", "bar").put("foo2", "baz2")`
 	 */
-	put(path, value, ttl = this.config.defaultTTLms) {
+	put(path, value, options) {
 		let cacheElem = this.cacheData || {}
 		let metadataElem = this.cacheMetadata || {}
+		let opts = { ...this.config, ...options }
 		const parsedPath = this.parsePath(path)
 
 		// Walk along path and insert intermediate objects as necessary
@@ -83,17 +56,22 @@ class PopulatingCache {
 			const id = parsedPath[i].id
 			const index = parsedPath[i].index
 
-			// If path[i] is a plain string, then step into that key in the cache.
+			// If path[i] is a plain string
 			if (key && index === undefined && id === undefined) {
 				if (i < parsedPath.length - 1) {
-					cacheElem = cacheElem[key] || (cacheElem[key] = {}) // create the attribute in the cache if necessary
+					// then step into that key in the cache. Create object if necessary.
+					cacheElem    = cacheElem[key]    || (cacheElem[key] = {}) 
 					metadataElem = metadataElem[key] || (metadataElem[key] = {})
 				} else {
-					// If this is the last element in path, then set the value at this position in the cache,
-					// replacing anything that was previously there.
-					cacheElem[key] = value 
+					// If this is the last element in path, then store value in the cache
+					// If value is an object and merge === true, then only merge properties from value into current cacheElem[key]
+					if (opts.merge && typeof value === "object") {
+						cacheElem[key] = {...cacheElem[key], ...value}
+					} else {
+						cacheElem[key] = value
+					}
 					metadataElem[key] = {
-						_ttl: Date.now() + ttl,
+						_ttl: Date.now() + opts.ttl,
 						_type: typeof value,
 					}
 				}
@@ -103,40 +81,41 @@ class PopulatingCache {
 				if (!cacheElem[key]) cacheElem[key] = [] // create array in cache if necessary
 				if (!metadataElem[key]) metadataElem[key] = []
 				if (i < parsedPath.length - 1) {
-					cacheElem =
-						cacheElem[key][index] || (cacheElem[key][index] = {})
-					metadataElem =
-						metadataElem[key][index] ||
-						(metadataElem[key][index] = {})
+					cacheElem    = cacheElem[key][index]    || (cacheElem[key][index] = {})
+					metadataElem = metadataElem[key][index] || (metadataElem[key][index] = {})
 				} else {
-					cacheElem[key][index] = value // if this is the last element in the  path, then set the value as this array element
+					// if this is the last element in the  path, then set the value as this array element
+					if (opts.merge && typeof value === "object") {
+						cacheElem[key][index] = {...cacheElem[key][index], ...value}
+					} else {
+						cacheElem[key][index] = value 
+					}
 					metadataElem[key][index] = {
-						_ttl: Date.now() + ttl,
+						_ttl: Date.now() + opts.ttl,
 						_type: typeof value,
 					}
 				}
 			}
-			// If elem of path is "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
+			// If path[i] is "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
 			else if (key && index === undefined && id) {
 				const cacheArray = cacheElem[key] || (cacheElem[key] = []) // create array in cache if necessary
 				if (!metadataElem[key]) metadataElem[key] = []
 				let foundIndex = cacheArray.findIndex((e) => e[this.config.idAttr] == id)
-				// If "key"-array does not have an element with that _id, then we add a new element to the array.
+				// If "key"-array does not have an element with that _id, then add a new element to the array.
 				if (foundIndex === -1) {
 					cacheArray.push({ [this.config.idAttr]: id })
 					foundIndex = cacheArray.length - 1
 				}
 				if (i < parsedPath.length - 1) {
-					cacheElem = cacheElem[key][foundIndex]
-					metadataElem =
-						metadataElem[key][foundIndex] ||
-						(metadataElem[key][foundIndex] = {[this.config.idAttr]: id})
+					cacheElem    = cacheElem[key][foundIndex]
+					metadataElem = metadataElem[key][foundIndex] || (metadataElem[key][foundIndex] = {[this.config.idAttr]: id})
 				} else {
+					// If value is not an object then wrap it in an object and add id, so that we can receive it back under that path.
 					if (typeof value !== "object") value = { [this.config.idAttr]: id, value }
 					// If value has a different (or missing) ID than what the last element of path declares, then we must correct value here
 					// to satisfy the always valid invariant `cache.put(path, value)  => cache.get(path) = value`
 					if (value && value[this.config.idAttr] && value[this.config.idAttr] != id) {
-						console.warn(`WARNING: ID mismatch! You tried to PUT a value under path ${JSON.stringify(path)}. But your value had value.${this.config.idAttr}=${value.[this.config.idAttr]}. I changed this to value.${this.config.idAttr}=${id}`)  // eslint-disable-line
+						console.warn(`WARNING: ID mismatch! You tried to PUT a value under path ${JSON.stringify(path)}. But your value had value.${this.config.idAttr}=${value[this.config.idAttr]}. I changed this to value.${this.config.idAttr}=${id}`)  // eslint-disable-line
 						// eslint-disable-next-line no-param-reassign
 						value[this.config.idAttr] = id 
 					}
@@ -145,10 +124,14 @@ class PopulatingCache {
 						// eslint-disable-next-line no-param-reassign
 						value[this.config.idAttr] = id
 					}
-					cacheElem[key][foundIndex] = value
+					if (opts.merge && typeof value === "object") {
+						cacheElem[key][foundIndex] = {...cacheElem[key][foundIndex], ...value}
+					} else {
+						cacheElem[key][foundIndex] = value 
+					}
 					metadataElem[key][foundIndex] = {
 						[this.config.idAttr]: id,
-						_ttl: Date.now() + ttl,
+						_ttl: Date.now() + opts.ttl,
 						_type: typeof value,
 					}
 				}
@@ -172,14 +155,14 @@ class PopulatingCache {
 	 *       - "array[index]" for array elements. Index must be a positive.
 	 *     For example: [{posts:5}, {comments:42}] is the comment with id 42 of the post with id 5
 	 *     For a REST backend this can be translated to the REST resource at  /posts/5/comments/42
-	 * @param {Boolean} force Force calls to backend, even when cache element is not yet expired
-	 * @param {Boolean} populate Automatically populate DBrefs from this cache if possible.
+	 * @param {Object} options Override default options, e.g. force call to backend or do not populate.
 	 * @returns (A Promise that resolves to) the fetched value. Either directly from the cache or from the backend.
 	 * @rejects When the value couldn't be fetched or there was an API error in your backend.
 	 */
-	async get(path, callBackend = this.CALL_BACKEND_WHEN_EXPIRED, populate = this.config.populate) {
+	async get(path, options) {
 		let cacheElem = this.cacheData || {}
 		let metadataElem = this.cacheMetadata || {}
+		let opts = {...this.config, ...options}
 		const parsedPath = this.parsePath(path)
 
 		// Walk along path and insert intermediate objects as necessary
@@ -194,11 +177,10 @@ class PopulatingCache {
 				// If there is no cacheElem under that key, then immideately call the backend.
 				if (!cacheElem) break 
 				// If cacheElem is a DBref, then (try to) populate it.
-				if (populate && cacheElem[this.config.referencedPathAttr]) {
+				if (opts.populate && cacheElem[this.config.referencedPathAttr]) {
 					cacheElem = await this.get(
 						cacheElem[this.config.referencedPathAttr],		// path to referenced element in the cache
-						callBackend,
-						populate
+						opts
 					)
 				}
 				// If cacheElem is expired then force fetch it from the backend.
@@ -215,11 +197,10 @@ class PopulatingCache {
 			else if (key && index >= 0 && id === undefined) {
 				cacheElem = cacheElem[key][index]
 				if (!cacheElem) break
-				if (populate && cacheElem[this.config.referencedPathAttr]) {
+				if (opts.populate && cacheElem[this.config.referencedPathAttr]) {
 					cacheElem = await this.get(
 						cacheElem[this.config.referencedPathAttr],		// path to referenced element in the cache
-						callBackend,
-						populate
+						opts
 					)
 				}
 				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
@@ -235,11 +216,10 @@ class PopulatingCache {
 				const index = cacheElem[key].findIndex((e) => e[this.config.idAttr] == id) // eslint-disable-line no-shadow
 				if (index === -1) break // if there is no element with a matching _id, then immideately try to query for the full path
 				cacheElem = cacheElem[key][index]
-				if (populate && cacheElem[this.config.referencedPathAttr]) {
+				if (opts.populate && cacheElem[this.config.referencedPathAttr]) {
 					cacheElem = await this.get(
 						cacheElem[this.config.referencedPathAttr],		// path to referenced element in the cache
-						callBackend,
-						populate
+						opts
 					)
 				}
 				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
@@ -256,7 +236,7 @@ class PopulatingCache {
 		}
 
 		// 
-		return this.getOrFetch(path, cacheElem, metadataElem, callBackend)
+		return this.getOrFetch(path, cacheElem, metadataElem, opts.callBackend)
 	}
 
 	/**
@@ -318,11 +298,13 @@ class PopulatingCache {
 	 * If path points to an `undefined` value, then isInCache will return false.
 	 * @param {Array} path path to an element in the cache
 	 * @param {Boolean} populate wether to populate DBrefs along path
-	 * @return {Boolean} true if there is a value in the cache and it is not yet expired.
+	 * @return {Boolean} true if there is a value !== undefind in the cache and it is not yet expired.
 	 */
-	isInCache(path, populate = this.config.populate) {
-		return this.get(path, this.DO_NOT_CALL_BACKEND, populate)
-			.then((value) => value !== undefined)
+	isInCache(path) {
+		return this.get(path, {callBackend: this.DO_NOT_CALL_BACKEND})
+			.then((value) => {
+				return value !== undefined
+			})
 			.catch(() => false)
 	}
 
@@ -492,25 +474,60 @@ class PopulatingCache {
 
 let deleteExpiredElemsRec = function(elem, metadata) {
 	if (!elem) return
-	if (metadata && metadata._ttl < Date.now()) {
-		elem = undefined
-		metadata = undefined
-		return
-	}
 	if (Array.isArray(elem)) {
 		for (let i = 0; i < elem.length; i++) {
-			const childElem = elem[i]
-			const childMetadata = metadata[i]
-			deleteExpiredElemsRec(childElem, childMetadata)
+			const childMetadata = metadata ? metadata[i] : {}
+			if (childMetadata._ttl < Date.now()) {
+				elem[i] = undefined  // set array element to undefined, but keep array
+				metadata[i] = undefined
+			} else {
+				deleteExpiredElemsRec(elem[i], childMetadata)
+			}
 		}
 	} else if (typeof elem === "object") {
 		for (const key in elem) {
-			const childElem = elem[key]
-			const childMetadata = metadata[key]
-			deleteExpiredElemsRec(childElem, childMetadata)				
+			const childMetadata = metadata[key] || {}
+			if (childMetadata._ttl < Date.now()) {
+				delete elem[key]		// delete object property completely
+				delete metadata[key]
+			} else {
+				deleteExpiredElemsRec(elem[key], childMetadata)
+			}
 		}
 	}
 }
+
+/**
+ * Default configuration for a cache. You can overwrite these when creating a new PopulatingCache instance.
+ * Each cache instance can have its own configuration.
+ */
+const DEFAULT_CONFIG = {
+	// default time to live is 60 seconds
+	ttl: 60 * 1000,
+
+	// Should get() return cloned values or direct references to the attribute from the cache
+	returnClones: false,
+
+	// Should referenced pathes automatically be resolved and populated by default. This default can be overriden when calling `GET()`.
+	populate: true,
+
+	// Name of _id attribute used when looking up `entity/febb3` or `user/42`
+	idAttr: "_id",
+
+	// Name of the JSON attribute that marks a referenced path (DBRef), e.g. `createdByUser: { $refPath: "users/4711" }`
+	referencedPathAttr: "$refPath",
+
+	// Merge object properties into existing values when PUTing
+	merge: false,
+
+	// Call backend when value in cache is expired (or not there at all)
+	callBackend: PopulatingCache.CALL_BACKEND_WHEN_EXPIRED
+}
+
+/* Unbelievably clever RegEx to extract {key, id, index} from path elements of type string :-) */
+const pathElemRegEx = /^(?<key>[a-zA-Z_$][0-9a-zA-Z-_$]*)(\[(?<index>\d+)\])?(\/(?<id>[0-9a-zA-Z_$][0-9a-zA-Z-_$]*))?$/
+
+
 
 export default PopulatingCache
 

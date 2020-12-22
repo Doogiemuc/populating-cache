@@ -150,7 +150,7 @@ test("Force call to backend", async () => {
 	expect(fetchFunc.mock.calls.length).toBe(0)
 
 	// GET with force = true should call backend
-	const res2 = await cache.get(path, cache.FORCE_BACKEND_CALL)
+	const res2 = await cache.get(path, {callBackend: cache.FORCE_BACKEND_CALL})
 	expect(res2).toEqual(value)
 	expect(fetchFunc.mock.calls.length).toBe(1)
 	expect(fetchFunc.mock.calls[0][0]).toEqual(path) // first argument of first call should be path
@@ -158,7 +158,7 @@ test("Force call to backend", async () => {
 
 test("Check if value is already in cache", async () => {
 	// GIVEN a value in the cache
-	const path = ["parnetKey", "childKey"]
+	const path = ["parentKey", "childKey"]
 	const value = "bar"
 	const fetchFunc = jest.fn(() => Promise.reject("Should not be called. Only check if value is in cache."))
 	const cache = new PopulatingChache(fetchFunc)
@@ -179,8 +179,6 @@ test("Check if value is already in cache", async () => {
 	expect(res2).toEqual(false)
 	expect(fetchFunc.mock.calls.length).toBe(0)
 })
-
-
 
 test("Expired elements should be fetched from the backend", async () => {
 	const path = ["fooKey"]
@@ -242,7 +240,7 @@ test("Element with expired parent should be fetched from the backend", async () 
 	expect(fetchFunc.mock.calls[0][0]).toEqual(postPath) // first argument of first (and only) call to fetchFunc should have been postPath
 })
 
-test("delete expired elems in the cache", async () => {
+test("Delete all expired elems in the cache", async () => {
 	const fetchFunc = jest.fn(() => Promise.reject("should not be called in deleteExpiredElems test"))
 	const cache = new PopulatingChache(fetchFunc)
 
@@ -257,11 +255,27 @@ test("delete expired elems in the cache", async () => {
 	cache.deleteExpiredElems()
 
 	//THEN key1 should still be in the cache and key2 should be deleted
+
+	let cacheData = cache.getCacheData()
+	expect(cacheData["key1"]).toBe("val1")
 	const res1 = await cache.get("key1")
 	expect(res1).toEqual("val1")
+	let isInCache = await cache.isInCache("key2")
+	expect(isInCache).toBe(false)
 	expect(fetchFunc.mock.calls.length).toBe(0)
 })
 
+
+test("Merge properties", async () => {
+	const fetchFunc = jest.fn(() => Promise.reject("Should not be called in merge properties test."))
+	const cache = new PopulatingChache(fetchFunc)
+	const path = "parent.child"
+	cache.put(path, {foo: "bar"})
+	cache.put(path, {key: "baz"}, {merge:true})
+
+	let val = await cache.get(path)
+	expect(val).toEqual({foo: "bar", key: "baz"})
+})
 
 
 /*
