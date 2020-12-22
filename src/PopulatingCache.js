@@ -54,10 +54,11 @@ class PopulatingCache {
 		for (let i = 0; i < parsedPath.length; i++) {
 			const key = parsedPath[i].key
 			const id = parsedPath[i].id
-			const index = parsedPath[i].index
+			const appendArray = parsedPath[i].appendArray
+			let index = parsedPath[i].index
 
-			// If path[i] is a plain string
-			if (key && index === undefined && id === undefined) {
+			// If path[i] is a plain string key
+			if (key && index === undefined && id === undefined && !appendArray) {
 				if (i < parsedPath.length - 1) {
 					// then step into that key in the cache. Create object if necessary.
 					cacheElem    = cacheElem[key]    || (cacheElem[key] = {}) 
@@ -74,6 +75,25 @@ class PopulatingCache {
 						_ttl: Date.now() + opts.ttl,
 						_type: typeof value,
 					}
+				}
+			}
+			// If path[i] was in the form "array[]", then append value to that array
+			else if (key && index === undefined && id === undefined && appendArray) {
+				if (!cacheElem[key]) cacheElem[key] = [] // create array in cache if necessary
+				if (!metadataElem[key]) metadataElem[key] = []
+				if (i < parsedPath.length - 1) {
+					throw new Error('"appendArray[]" is only allowed as the last element of path in PUT()')
+					//TODO: Can we allow this in intermediate elements in PUT? 
+					//  => This is complex! What type of element should I append to the array here? a String, an object or another array? This depends on the next elem in path
+				} else {
+					// If this is the last element in path, then append value to end of this array
+					if (!Array.isArray(cacheElem[key]))
+						throw new Error("Cannot append to array. Last element in path is not an array.")
+					cacheElem[key].push(value)
+					metadataElem[key].push({
+						_ttl: Date.now() + opts.ttl,
+						_type: typeof value,
+					})
 				}
 			}
 			// If path[i] is an string that defines an array element "key[index]" then step into it.
@@ -100,15 +120,15 @@ class PopulatingCache {
 			else if (key && index === undefined && id) {
 				const cacheArray = cacheElem[key] || (cacheElem[key] = []) // create array in cache if necessary
 				if (!metadataElem[key]) metadataElem[key] = []
-				let foundIndex = cacheArray.findIndex((e) => e[this.config.idAttr] == id)
+				index = cacheArray.findIndex((el) => el[this.config.idAttr] == id)
 				// If "key"-array does not have an element with that _id, then add a new element to the array.
-				if (foundIndex === -1) {
+				if (index === -1) {
 					cacheArray.push({ [this.config.idAttr]: id })
-					foundIndex = cacheArray.length - 1
+					index = cacheArray.length - 1
 				}
 				if (i < parsedPath.length - 1) {
-					cacheElem    = cacheElem[key][foundIndex]
-					metadataElem = metadataElem[key][foundIndex] || (metadataElem[key][foundIndex] = {[this.config.idAttr]: id})
+					cacheElem    = cacheElem[key][index]
+					metadataElem = metadataElem[key][index] || (metadataElem[key][index] = {[this.config.idAttr]: id})
 				} else {
 					// If value is not an object then wrap it in an object and add id, so that we can receive it back under that path.
 					if (typeof value !== "object") value = { [this.config.idAttr]: id, value }
@@ -125,11 +145,11 @@ class PopulatingCache {
 						value[this.config.idAttr] = id
 					}
 					if (opts.merge && typeof value === "object") {
-						cacheElem[key][foundIndex] = {...cacheElem[key][foundIndex], ...value}
+						cacheElem[key][index] = {...cacheElem[key][index], ...value}
 					} else {
-						cacheElem[key][foundIndex] = value 
+						cacheElem[key][index] = value 
 					}
-					metadataElem[key][foundIndex] = {
+					metadataElem[key][index] = {
 						[this.config.idAttr]: id,
 						_ttl: Date.now() + opts.ttl,
 						_type: typeof value,
@@ -169,7 +189,7 @@ class PopulatingCache {
 		for (let i = 0; i < parsedPath.length; i++) {
 			const key = parsedPath[i].key
 			const id = parsedPath[i].id
-			const index = parsedPath[i].index
+			let   index = parsedPath[i].index
 
 			// If path[i] is a plain string, then step into that key.
 			if (key && index === undefined && id === undefined) {
@@ -213,7 +233,7 @@ class PopulatingCache {
 			// If path[i] was "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
 			else if (key && index === undefined && id) {
 				if (!cacheElem[key]) break
-				const index = cacheElem[key].findIndex((e) => e[this.config.idAttr] == id) // eslint-disable-line no-shadow
+				index = cacheElem[key].findIndex((el) => el[this.config.idAttr] == id) // eslint-disable-line no-shadow
 				if (index === -1) break // if there is no element with a matching _id, then immideately try to query for the full path
 				cacheElem = cacheElem[key][index]
 				if (opts.populate && cacheElem[this.config.referencedPathAttr]) {
@@ -382,6 +402,7 @@ class PopulatingCache {
 	
 	/**
 	 * Parse a path into an array of { key, id, index } objects.
+	 * See README.md for a detailed description about pathes in populating-cache.
 	 *
 	 * @param {String|Array} path plain string or array of path elements
 	 * @returns {Array} Array of parsed objects { key, id, index }. `id` or `index` may be undefind in each path element.
@@ -391,7 +412,7 @@ class PopulatingCache {
 		let result = []
 		if (!path) throw new Error("Cannot parse empty path.")
 
-		// If path is a string, then split it at the dots or otherwise wrap it into an array.
+		// If path is just a string, then split it at the dots or otherwise wrap it into an array.
 		if (typeof path === "string") {
 			if (path.includes(".")) {
 				result = path.split(".")
@@ -410,26 +431,25 @@ class PopulatingCache {
 		for (let i = 0; i < result.length; i++) {
 			const pathElem = result[i]
 			if (!pathElem) {
-				throw new Error(`path[${i}] is null or undefined.`) // MAYBE: Skip this pathElem
+				throw new Error(`path[${i}] is null or undefined.`)
 			} else if (typeof pathElem === "string") {
-				// If elem is a string, then extract key, and either id or index from it: "key", "key/id" or "key[index]"
+				// If path[i] is a string, then extract key, and either id or index from it: "key", "key/id" or "array[index]" or "array[]"
 				const match = pathElem.match(pathElemRegEx)
-				if (!match)	
-					throw new Error(`Invalid string pathElem path[${i}]="${pathElem}"`)
+				if (!match || !match.groups.key)
+					throw new Error(`Invalid string pathElem. No key in path[${i}]="${pathElem}"`)
 				if (match.groups.id && match.groups.index) 
-					throw new Error(`Cannot use index and id at the same time in path[${i}]${pathElem}`)
+					throw new Error(`Cannot use index and id at the same time in path[${i}]=${pathElem}`)
 				result[i] = {
 					key: match.groups.key,
 					id: match.groups.id, // may also be undefined for plain string keys
-					index: match.groups.index
-						? parseInt(match.groups.index, 10)
-						: undefined,
+					index: match.groups.index ? parseInt(match.groups.index, 10) : undefined,
 				}
+				if (match.groups.appendArray === '[]') result[i].appendArray = true
 			} else if (
 				typeof pathElem === "object" &&
 				Object.keys(pathElem).length === 1
 			) {
-				// If path[i] can be an object of the form {key: id}
+				// If path[i] is an object of the form {key: id}
 				result[i] = {
 					key: Object.keys(pathElem)[0],
 					id: Object.values(pathElem)[0],
@@ -502,11 +522,18 @@ let deleteExpiredElemsRec = function(elem, metadata) {
  * Each cache instance can have its own configuration.
  */
 const DEFAULT_CONFIG = {
-	// default time to live is 60 seconds
-	ttl: 60 * 1000,
+	// ===== options for GET =====
+
+	// Call backend when value in cache is expired (or not there at all)
+	callBackend: PopulatingCache.CALL_BACKEND_WHEN_EXPIRED,
 
 	// Should get() return cloned values or direct references to the attribute from the cache
 	returnClones: false,
+
+	// ===== options for PUT =====
+
+	// default time to live is 60 seconds
+	ttl: 60 * 1000,
 
 	// Should referenced pathes automatically be resolved and populated by default. This default can be overriden when calling `GET()`.
 	populate: true,
@@ -520,15 +547,21 @@ const DEFAULT_CONFIG = {
 	// Merge object properties into existing values when PUTing
 	merge: false,
 
-	// Call backend when value in cache is expired (or not there at all)
-	callBackend: PopulatingCache.CALL_BACKEND_WHEN_EXPIRED
+	// append to end of array
+	append: false,
+	
 }
 
-/* Unbelievably clever RegEx to extract {key, id, index} from path elements of type string :-) */
-const pathElemRegEx = /^(?<key>[a-zA-Z_$][0-9a-zA-Z-_$]*)(\[(?<index>\d+)\])?(\/(?<id>[0-9a-zA-Z_$][0-9a-zA-Z-_$]*))?$/
+/** 
+ * Unbelievably clever RegEx to extract {key, id, index} from path elements of type string :-) 
+ * 
+ * First we have a key: One more more characters. Must start with a letter or underscore or dollar. May later contain hyphen(-).
+ * Then either an array index in brackets
+ * or only brackets to append to an array (but only in the last element of path)
+ * or a slash with an alphanumercial id, e.g. key/3d4f-abc5
+ */
+const pathElemRegEx = /^(?<key>[a-zA-Z_$][0-9a-zA-Z-_$]*)((\[(?<index>\d+)\])|(?<appendArray>\[\])|(\/(?<id>[0-9a-zA-Z_$][0-9a-zA-Z-_$]*)))?$/
 
 
 
 export default PopulatingCache
-
-// See also https://github.com/node-cache/node-cache/blob/master/_src/lib/node_cache.coffee

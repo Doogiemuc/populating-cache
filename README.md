@@ -116,17 +116,17 @@ then it is be refetched from the backend. When a value is expired, then also all
 
 ```javascript
 cacheMetadata = {
-	"posts": [...],
-	"users": [
-		{
-			_id: 901,
-			ttl: 1456  //  <= EXPIRED!
-		},
-		{
-			_id: 902,
-			ttl: 25263426457// +5 days
-		},
-	]
+  "posts": [...],
+  "users": [
+    {
+      _id: 901,
+      ttl: 123  //  <= EXPIRED!
+    },
+    {
+      _id: 902,
+      ttl: 25263426457 // +5 days
+    },
+  ]
 }
 ```
 
@@ -235,6 +235,10 @@ put(["posts/4711", "comments/42"], {baz:"boo"}, {merge:true})
 ```
 
 Object IDs can be numeric or alphanumeric UUIDs. The name of the `_id` property can be configured.
+
+# Praise
+
+Thanks to the creators of [node-cache](https://github.com/node-cache/node-cache/blob/master/_src/lib/node_cache.coffee) for coffeescript inspiration.
 
 # API
 

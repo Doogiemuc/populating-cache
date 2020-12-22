@@ -277,32 +277,27 @@ test("Merge properties", async () => {
 	expect(val).toEqual({foo: "bar", key: "baz"})
 })
 
+test("Append to array", async () => {
+	const fetchFunc = jest.fn(() => Promise.reject("Should not be called in append to array test."))
+	const cache = new PopulatingChache(fetchFunc)
+	const path = "parent.array[]"
+	cache.put(path, "one")
+	cache.put(path, "two")
 
-/*
-test.each([
-		["abc",      {key:"key", value: "abc"}],
-		["$adfsf",   {key:"key", value: "$adfsf"}],
-		["abc[42]",  {key:"index", value: "42"}],
-		["abc/4711", {key:"id", value: "4711"}],
-	])("Test regex matching for path element '%s'", (str, tst) => 
-{
-	const re = /^(?<key>[a-zA-Z_$][0-9a-zA-Z-_$]*)(\[(?<index>\d+)\])?(\/(?<id>[0-9a-zA-Z_$][0-9a-zA-Z-_$]*))?$/
-	let res = str.match(re)
-	expect(res.groups)
-	expect(res.groups[tst.key] === tst.value)
+	let val = await cache.get(["parent", "array[1]"])
+	expect(val).toEqual("two")
 })
-*/
 
-
-// prettier-ignore
-test.each([	
+test.each([
 	["abc",      [{key: "abc"}]],
 	["$adfsf",   [{key: "$adfsf"}]],
 	["abc[42]",  [{key: "abc", index: 42}]],
 	["abc/4711", [{key: "abc", id: "4711"}]],
 	[["abc", {foo:"bar"}], [{key: "abc"}, {key: "foo", id:"bar"}]],
-])("Test parsing of path %j", (path, expectedResult) => {
-	const fetchFunc = jest.fn(value => Promise.resolve(value))
+	["parent.child/5a3f.three", [{key: "parent"}, {key: "child", id:"5a3f"}, {key: "three"}]],
+	["one.array[]", [{key:"one"}, {key:"array", appendArray: true}]]
+])("Test parsing of path %j into %j", (path, expectedResult) => {
+	const fetchFunc = jest.fn(() => Promise.reject("should not be called in parsePath test"))
 	const cache = new PopulatingChache(fetchFunc)
 	const actual = cache.parsePath(path)
 	expect(actual).toEqual(expectedResult)
