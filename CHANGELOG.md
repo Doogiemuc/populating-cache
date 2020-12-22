@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.2.0](https://github.com/doogiemuc/populating-cache/compare/v2.1.0...v2.2.0) (2020-12-22)
+
+
+### Features
+
+* Merge object properties in cache ([33d4094](https://github.com/doogiemuc/populating-cache/commit/33d409499f244b6f9c63cb511e9383ced45dff77))
+
 ## [2.1.0](https://github.com/doogiemuc/populating-cache/compare/v1.1.0...v2.1.0) (2020-12-22)
 
 
