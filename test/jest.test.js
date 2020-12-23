@@ -4,18 +4,12 @@ test("PUT a value into the cache and GET it back", () => {
 	const alwaysReject = jest.fn(() =>
 		Promise.reject(new Error("Should not be called"))
 	)
-	const cache = new PopulatingChache(alwaysReject)
+	const cache = new PopulatingChache({fetchFunc: alwaysReject})
 	const key = "key"
 	const value = "value"
 	cache.put(key, value)
-	console.log(
-		"cache after PUT",
-		JSON.stringify(cache.getCacheData(), null, 2)
-	)
-	console.log(
-		"metadata after PUT",
-		JSON.stringify(cache.getMetadata(), null, 2)
-	)
+	//console.log("cache after PUT", JSON.stringify(cache.getCacheData(), null, 2))
+	//console.log("metadata after PUT",	JSON.stringify(cache.getMetadata(), null, 2))
 	return cache.get(key).then((returnedValue) => {
 		expect(alwaysReject.mock.calls.length).toBe(0)
 		expect(returnedValue).toEqual(value)
@@ -28,15 +22,10 @@ test.each([
 	[["key1", { keyWithId: 4 }, { secondKeyWithId: 3 }, "childAttr"], "value2"],
 	[["arrayOne[3]", { subkey: "stringkey" }, "childKey2/12", "var"], "value4"],
 ])("PUT and GET: %j = %j", (path, value) => {
-	const alwaysReject = jest.fn(() =>
-		Promise.reject(new Error("Should not be called"))
-	)
-	const cache = new PopulatingChache(alwaysReject)
+	const alwaysReject = jest.fn(() => Promise.reject(new Error("Should not be called")))
+	const cache = new PopulatingChache({fetchFunc: alwaysReject})
 	cache.put(path, value)
-	console.log("cache after PUT", JSON.stringify(cache.getCacheData()))
-	console.log("metadata after PUT", JSON.stringify(cache.getMetadata()))
 	return cache.get(path).then((returnedValue) => {
-		console.log("cache returned:", returnedValue)
 		expect(alwaysReject.mock.calls.length).toBe(0)
 		expect(returnedValue).toEqual(value)
 	})
@@ -48,27 +37,31 @@ test.each([
  */
 test.each([
 	[["missingId/99"], "plainString", { _id: "99", value: "plainString" }],	// not an object: Will wrap and add id
-	[["wrongId/99"], { _id: 666, foo: "bar" }, { _id: "99", foo: "bar" }],	// id mismatch  => will correct internal id
 	[["missingId/99"], "anything", { _id: "99", value: "anything" }], 			// no object => will automatically wrap and add id
 ])("PUT and GET: %j = %j", (path, value, expected) => {
 	const alwaysReject = jest.fn(() =>
 		Promise.reject(new Error("Should not be called"))
 	)
-	const cache = new PopulatingChache(alwaysReject)
+	const cache = new PopulatingChache({fetchFunc: alwaysReject})
 	cache.put(path, value)
-	console.log("cache after PUT", JSON.stringify(cache.getCacheData()))
-	console.log("metadata after PUT", JSON.stringify(cache.getMetadata()))
 	return cache.get(path).then((returnedValue) => {
-		console.log("cache returned:", returnedValue)
 		expect(alwaysReject.mock.calls.length).toBe(0)
 		expect(returnedValue).toEqual(expected)
 	})
 })
 
+test("PUT throws error on ID mismatch", () => {
+	const cache = new PopulatingChache()
+	expect(() => {
+		cache.put("wrongId/99", {_id: 66, text: "Wrong id because 66 !== 99"})
+	}).toThrow()
+})
+
+
 test("GET of unknown value should call backend", () => {
 	const value = "valueFromServer"
 	const fetchFunc = jest.fn(() => Promise.resolve(value))
-	const cache = new PopulatingChache(fetchFunc)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 	const path = ["justAnyKey"]
 	return cache.get(path).then((returnedValue) => {
 		expect(fetchFunc.mock.calls.length).toBe(1)
@@ -81,7 +74,7 @@ test("Populate a path", async () => {
 	const fetchFunc = jest.fn(() =>
 		Promise.reject(new Error("Backend should not be called in this test case"))
 	)
-	const cache = new PopulatingChache(fetchFunc)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 	cache.put(["posts/11", "comments[0]"], {
 		_id: 4711,
 		text: "this is a comment",
@@ -93,7 +86,6 @@ test("Populate a path", async () => {
 		email: "someuser@domain.com",
 	})
 	// console.log("=== Cache after PUTs", JSON.stringify(cache.getCacheData(), null, 4))
-	// prettier-ignore
 	// WHEN
 	return cache.get(["posts/11", "comments[0]", "createdBy", "email"])
 		// THEN
@@ -101,6 +93,43 @@ test("Populate a path", async () => {
 			expect(res).toBe("someuser@domain.com")
 		})
 })
+
+test("Populate several references", async () => {
+	// GIVEN a cache with DBrefs
+	const fetchFunc = jest.fn((path) =>
+		Promise.reject(new Error("Backend should not be called in this test case: "+JSON.stringify(path)))
+	)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
+	cache.put(["comments[]"], {
+		text: "this is a comment",
+		createdBy: { $refPath: "users/u1" },
+	})
+	cache.put(["comments[]"], {
+		text: "this is another comment",
+		createdBy: { $refPath: "users/u2" },
+	})
+	cache.put(["users/u1"], {
+		_id: "u1",
+		username: "SomeUser",
+		email: "someuser@domain.com",
+	})
+	cache.put(["users/u2"], {
+		_id: "u2",
+		username: "Second User",
+		email: "user_u2@domain.com",
+	})
+	
+	// WHEN we populate these DBrefs
+	let comments = await cache.get("comments")
+	//console.log("=== comments", JSON.stringify(comments, null, 2))
+	let populatedComments = await cache.populate(comments, "createdBy")
+	//console.log("=== populatedComments", JSON.stringify(comments, null, 2))
+	
+	// THEN the references are resolved and filled with users
+	expect(populatedComments[0].createdBy.email).toBe("someuser@domain.com")
+	expect(populatedComments[1].createdBy.email).toBe("user_u2@domain.com")
+})
+
 
 test("TTL is checked correctly, when populating a path", async () => {
 	// GIVEN a post's comment that references a User
@@ -111,7 +140,7 @@ test("TTL is checked correctly, when populating a path", async () => {
 		if (path.length === emailPath.length && path[path.length-1] === emailPath[emailPath.length-1]) return Promise.resolve(userEmail)
 		else return Promise.resolve("This should not have been called with path="+JSON.stringify(path))
 	})
-	const cache = new PopulatingChache(fetchFunc)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 	cache.put(commentPath, {
 		_id: 4711,
 		text: "this is a comment",
@@ -141,7 +170,7 @@ test("Force call to backend", async () => {
 	const path = ["fooKey"]
 	const value = { _id: 42, text: "this is comment 42" }
 	const fetchFunc = jest.fn(() => Promise.resolve(value))
-	const cache = new PopulatingChache(fetchFunc)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 	cache.put(path, value)
 
 	// GET without force should not call the backend
@@ -161,7 +190,7 @@ test("Check if value is already in cache", async () => {
 	const path = ["parentKey", "childKey"]
 	const value = "bar"
 	const fetchFunc = jest.fn(() => Promise.reject("Should not be called. Only check if value is in cache."))
-	const cache = new PopulatingChache(fetchFunc)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 	cache.put(path, value)
 
 	// WHEN we check if that value is in the cache
@@ -185,7 +214,7 @@ test("Expired elements should be fetched from the backend", async () => {
 	const value = { _id: 43, text: "this is comment 43" }
 	const valueNew = { _id: 43, text: "this is updated comment 43" }
 	const fetchFunc = jest.fn(() => Promise.resolve(valueNew))
-	const cache = new PopulatingChache(fetchFunc)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 	cache.put(path, value)
 
 	// First call: Should be returned from the cache
@@ -213,15 +242,15 @@ test("Element with expired parent should be fetched from the backend", async () 
 
 	// This mock backend returns the updated post. 
 	// It only returns that one specific post and should not be called otherwise within this test case
-	const fetchFunc = jest.fn((value) => {
+	const fetchFunc = jest.fn((path) => {
 		//console.log("Call to mock backend for GET("+JSON.stringify(value)+")")
-		if (value.length === 1 && value[0] === postPath[0]) {
+		if (path.length === 1 && path[0] === postPath[0]) {
 			return Promise.resolve(postValueNew)
 		} else {
-			return Promise.reject("Invlaid call to backend with path="+JSON.stringify(value))
+			return Promise.reject("Invalid call to backend with path="+JSON.stringify(path))
 		}
 	})
-	const cache = new PopulatingChache(fetchFunc)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 	cache.put(postPath, postValue)
 
 	// First call: Should be returned from the cache
@@ -242,7 +271,7 @@ test("Element with expired parent should be fetched from the backend", async () 
 
 test("Delete all expired elems in the cache", async () => {
 	const fetchFunc = jest.fn(() => Promise.reject("should not be called in deleteExpiredElems test"))
-	const cache = new PopulatingChache(fetchFunc)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 
 	//GIVEN
 	cache.put("key1", "val1")
@@ -268,7 +297,7 @@ test("Delete all expired elems in the cache", async () => {
 
 test("Merge properties", async () => {
 	const fetchFunc = jest.fn(() => Promise.reject("Should not be called in merge properties test."))
-	const cache = new PopulatingChache(fetchFunc)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 	const path = "parent.child"
 	cache.put(path, {foo: "bar"})
 	cache.put(path, {key: "baz"}, {merge:true})
@@ -279,7 +308,7 @@ test("Merge properties", async () => {
 
 test("Append to array", async () => {
 	const fetchFunc = jest.fn(() => Promise.reject("Should not be called in append to array test."))
-	const cache = new PopulatingChache(fetchFunc)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 	const path = "parent.array[]"
 	cache.put(path, "one")
 	cache.put(path, "two")
@@ -298,7 +327,7 @@ test.each([
 	["one.array[]", [{key:"one"}, {key:"array", appendArray: true}]]
 ])("Test parsing of path %j into %j", (path, expectedResult) => {
 	const fetchFunc = jest.fn(() => Promise.reject("should not be called in parsePath test"))
-	const cache = new PopulatingChache(fetchFunc)
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 	const actual = cache.parsePath(path)
 	expect(actual).toEqual(expectedResult)
 	expect(fetchFunc.mock.calls.length).toBe(0)

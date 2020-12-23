@@ -12,18 +12,14 @@ class PopulatingCache {
 	/**
 	 * Create a new instance of a PopulatingCache.
 	 * You may create several cache instances, for example for different types of data in your app or with different configuration.
-	 * @param {Function} fetchFunc async function that will be called to fetch elements from the backend. One param: *path*
 	 * @param {Object} config configuration parameters that may overwrite the DEFFAULT_CONFIG
 	 */
-	constructor(fetchFunc, config) {
-		if (typeof fetchFunc !== "function") throw Error("Need a fetchFunc(tion) to create PopulatingCache")
-		this.fetchFunc = fetchFunc
+	constructor(config) {
 		this.config = { ...DEFAULT_CONFIG, ...config }
 		this.cacheData = {}
 		this.cacheMetadata = {}
 
-		// When to call the backend in get() calls
-
+		// CONSTANTS
 		// always call backend for fresh value
 		this.FORCE_BACKEND_CALL = 1
 
@@ -135,13 +131,10 @@ class PopulatingCache {
 					// If value has a different (or missing) ID than what the last element of path declares, then we must correct value here
 					// to satisfy the always valid invariant `cache.put(path, value)  => cache.get(path) = value`
 					if (value && value[this.config.idAttr] && value[this.config.idAttr] != id) {
-						console.warn(`WARNING: ID mismatch! You tried to PUT a value under path ${JSON.stringify(path)}. But your value had value.${this.config.idAttr}=${value[this.config.idAttr]}. I changed this to value.${this.config.idAttr}=${id}`)  // eslint-disable-line
-						// eslint-disable-next-line no-param-reassign
-						value[this.config.idAttr] = id 
+						throw new Error(`ID mismatch! You tried to PUT a value under path ${JSON.stringify(path)}. But your value had value.${this.config.idAttr}=${value[this.config.idAttr]}.`)
 					}
 					if (value && !value[this.config.idAttr]) {
-						console.warn(`You tried to PUT a value without an ${this.config.idAttr} at path ${JSON.stringify(path)}. I added id=${id}`)  // eslint-disable-line
-						// eslint-disable-next-line no-param-reassign
+						console.warn(`You tried to PUT a object value without an ${this.config.idAttr} at path ${JSON.stringify(path)}. I added id=${id}`)
 						value[this.config.idAttr] = id
 					}
 					if (opts.merge && typeof value === "object") {
@@ -183,6 +176,7 @@ class PopulatingCache {
 		let cacheElem = this.cacheData || {}
 		let metadataElem = this.cacheMetadata || {}
 		let opts = {...this.config, ...options}
+		if (typeof opts.fetchFunc !== "function") return Promise.reject("Need fetchFunc to fetch value at path="+JSON.stringify(path))
 		const parsedPath = this.parsePath(path)
 
 		// Walk along path and insert intermediate objects as necessary
@@ -203,12 +197,11 @@ class PopulatingCache {
 						opts
 					)
 				}
-				// If cacheElem is expired then force fetch it from the backend.
+				// If this cacheElem is expired then fetch it from the backend.
 				// This will PUT the returned value back into the cache with an updated TTL.
 				if (metadataElem && metadataElem[key]) {
 					if (metadataElem[key].ttl < Date.now()) {
-						//TODO: change to fetchFunc(path, i), ie. i'th element in path is expired. Please refetch it.
-						cacheElem = await this.getOrFetch(path.slice(0,i+1), undefined, undefined, true)  
+						cacheElem = await this.fetchIfExpired(path.slice(0,i+1), undefined, undefined, opts)
 					}
 					metadataElem = metadataElem[key]
 				}
@@ -225,7 +218,7 @@ class PopulatingCache {
 				}
 				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
 					if (metadataElem[key][index].ttl < Date.now()) {
-						cacheElem = await this.getOrFetch(path.slice(0,i+1), undefined, undefined, true)
+						cacheElem = await this.fetchIfExpired(path.slice(0,i+1), undefined, undefined, opts)
 					}
 					metadataElem = metadataElem[key][index]
 				}
@@ -244,7 +237,7 @@ class PopulatingCache {
 				}
 				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
 					if (metadataElem[key][index]._ttl < Date.now()) {
-						cacheElem = await this.getOrFetch(path.slice(0,i+1), undefined, undefined, true)
+						cacheElem = await this.fetchIfExpired(path.slice(0,i+1), undefined, undefined, opts)
 					}
 					metadataElem = metadataElem[key][index]
 				}
@@ -256,7 +249,21 @@ class PopulatingCache {
 		}
 
 		// 
-		return this.getOrFetch(path, cacheElem, metadataElem, opts.callBackend)
+		return this.fetchIfExpired(path, cacheElem, metadataElem, opts)
+	}
+
+	/**
+	 * Get a value from the cache. Or fetch it from the backend with fetchFunc,
+	 * if the value is not in the cache or expired.
+	 * FetchFunc will be called with param as path.
+	 * 
+	 * If your backend requires authentication, fetchFunc is responsible to handle that.
+	 * 
+	 * @param {Array|String} path path to value that you want to get from the cache
+	 * @param {Function} fetchFunc async function that will be called when the value is not in the cache (or expired)
+	 */
+	async getOrFetch(path, fetchFunc) {
+		return this.get(path, { fetchFunc: fetchFunc})
 	}
 
 	/**
@@ -264,34 +271,34 @@ class PopulatingCache {
 	 * The backend will be called, IF
 	 *  - cacheElem is null, ie. not yet in the cache
 	 *  - cacheElem is expired, because its metadata.ttl is in the past.
-	 *  - or when callBackend === FORCE_BACKEND_CALL
+	 *  - or when opts.callBackend === FORCE_BACKEND_CALL
 	 *
-	 * When the backend is call, then the returned value is PUT() back into the cache
+	 * When the backend is called, then the returned value is PUT() back into the cache
 	 * with and updated TTL.
 	 *
 	 * @param {Array} path The full path to cacheElem
-	 * @param {Any} cacheElem the leaf element at the end of path or null if not in the cache yet
+	 * @param {Any} cacheElem the leaf element at the end of path or undefined if not in the cache yet
 	 * @param {Object} metadata metadata for cacheElem
-	 * @param {Number} callBackend always call backend if true
-	 * @returns {Promise} element either directly from the cache or fetched from the backend
-	 * @rejects when element is not in the cache and callBackend === DO_NOT_CALL_BACKEND
+	 * @param {Object} opts config options, including fetchFunc
+	 * @returns {Promise} resolves to cacheElem if it is not expired. Otherwise tries to query for value with fetchFunc().
+	 * @rejects When element is not in the cache and opts.callBackend === DO_NOT_CALL_BACKEND
 	 */
-	async getOrFetch(path, cacheElem, metadata, callBackend) {
-		switch(callBackend) {
-		case this.FORCE_BACKEND_CALL: 
-			return this.fetchFunc(path).then((res) => {
-				this.put(path, res)		// update TTL
+	async fetchIfExpired(path, cacheElem, metadata, opts) {
+		switch(opts.callBackend) {
+		case this.FORCE_BACKEND_CALL:
+			return opts.fetchFunc(path).then((res) => {
+				this.put(path, res)  // update TTL
 				return res
 			})
 		case this.DO_NOT_CALL_BACKEND:
 			if (metadata && metadata._ttl < Date.now()) {
-				cacheElem = undefined       // remove expired cacheElem
+				cacheElem = undefined // remove expired cacheElem    //TODO: does this work. Or do I have to call delete() ?
 				return Promise.reject(undefined)
 			}
 			return Promise.resolve(cacheElem)   // cacheElem may also be undefined.
 		default:
 			if (!cacheElem || metadata && metadata._ttl < Date.now()) {
-				return this.fetchFunc(path).then((res) => {
+				return opts.fetchFunc(path).then((res) => {
 					this.put(path, res)
 					return res
 				})
@@ -300,6 +307,41 @@ class PopulatingCache {
 			}
 		}
 	}
+
+	/**
+	 * Recursively populate all DBrefs in elem with a given property name, e.g.
+	 * populate all "createdBy" references (to "users") in an array of "posts":
+	 * `populate(posts, "createdBy")`
+	 * 
+	 * @param {Object|Array} elem an element from the cache that contains DBrefs
+	 * @param {String} refProp the name of the property that is a DBref and that shall be populated
+	 * @param {Object} options configuration options (or will use defaults)
+	 */
+	async populate(elem, refProp, options) {
+		let opts = {...this.config, ...options}
+		if (Array.isArray(elem)) {
+			for (let i = 0; i < elem.length; i++) {
+				if (elem[i][this.config.referencedPathAttr]) {
+					elem[i] = await this.get(elem[i][this.config.referencedPathAttr], opts)
+				} else {
+					await this.populate(elem[i], refProp, opts)
+				}
+			}
+		} else if (typeof elem === "object") {
+			for (const key in elem) {
+				if (key === refProp && elem[key][this.config.referencedPathAttr]) {
+					elem[key] = await this.get(elem[key][this.config.referencedPathAttr], opts)
+				} else {
+					await this.populate(elem[key], refProp, opts)
+				}
+			}
+		}
+		return elem
+	}
+
+
+
+
 
 	/**
 	 * Delete an element from the cache. It's value will be set to undefined.
@@ -524,10 +566,15 @@ let deleteExpiredElemsRec = function(elem, metadata) {
 const DEFAULT_CONFIG = {
 	// ===== options for GET =====
 
-	// Call backend when value in cache is expired (or not there at all)
-	callBackend: PopulatingCache.CALL_BACKEND_WHEN_EXPIRED,
+	// Global fetchFunc that will be called with path when a value needs to be fetched from the backend.
+	// fetchFunc MUST return a Promise, e.g. myFetchFunc(path) => { return Promise.resolve(valueFromBackend )}
+	// You can also provide an individual fetchFunc to each getOrFetch(path, individualFetchFunc) call.
+	fetchFunc: undefined,
 
-	// Should get() return cloned values or direct references to the attribute from the cache
+	// Call backend when value in cache is expired (or not there at all)
+	callBackend: 0, // = PopulatingCache.CALL_BACKEND_WHEN_EXPIRED
+
+	//TODO: Should get() return cloned values or direct references to the attribute from the cache
 	returnClones: false,
 
 	// ===== options for PUT =====
