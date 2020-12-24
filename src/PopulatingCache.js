@@ -80,7 +80,8 @@ class PopulatingCache {
 				if (i < parsedPath.length - 1) {
 					throw new Error('"appendArray[]" is only allowed as the last element of path in PUT()')
 					//TODO: Can we allow this in intermediate elements in PUT? 
-					//  => This is complex! What type of element should I append to the array here? a String, an object or another array? This depends on the next elem in path
+					//  => This is complex! What type of element should I append to the array here? a String, 
+					//     an object or another array? This depends on the next elem in path
 				} else {
 					// If this is the last element in path, then append value to end of this array
 					if (!Array.isArray(cacheElem[key]))
@@ -131,10 +132,12 @@ class PopulatingCache {
 					// If value has a different (or missing) ID than what the last element of path declares, then we must correct value here
 					// to satisfy the always valid invariant `cache.put(path, value)  => cache.get(path) = value`
 					if (value && value[this.config.idAttr] && value[this.config.idAttr] != id) {
-						throw new Error(`ID mismatch! You tried to PUT a value under path ${JSON.stringify(path)}. But your value had value.${this.config.idAttr}=${value[this.config.idAttr]}.`)
+						throw new Error(`ID mismatch! You tried to PUT a value under path ${JSON.stringify(path)}.
+						  But your value had value.${this.config.idAttr}=${value[this.config.idAttr]}.`)
 					}
 					if (value && !value[this.config.idAttr]) {
-						console.warn(`You tried to PUT a object value without an ${this.config.idAttr} at path ${JSON.stringify(path)}. I added id=${id}`)
+						console.warn(`You tried to PUT a object value without an ${this.config.idAttr} 
+						   at path ${JSON.stringify(path)}. I added id=${id}`)
 						value[this.config.idAttr] = id
 					}
 					if (opts.merge && typeof value === "object") {
@@ -607,6 +610,7 @@ const DEFAULT_CONFIG = {
  * or only brackets to append to an array (but only in the last element of path)
  * or a slash with an alphanumercial id, e.g. key/3d4f-abc5
  */
+// eslint-disable-next-line max-len
 const pathElemRegEx = /^(?<key>[a-zA-Z_$][0-9a-zA-Z-_$]*)((\[(?<index>\d+)\])|(?<appendArray>\[\])|(\/(?<id>[0-9a-zA-Z_$][0-9a-zA-Z-_$]*)))?$/
 
 
