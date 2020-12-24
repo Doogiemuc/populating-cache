@@ -204,7 +204,7 @@ class PopulatingCache {
 				// This will PUT the returned value back into the cache with an updated TTL.
 				if (metadataElem && metadataElem[key]) {
 					if (metadataElem[key].ttl < Date.now()) {
-						cacheElem = await this.fetchIfExpired(path.slice(0,i+1), undefined, undefined, opts)
+						cacheElem = await this.fetchIfExpired(this.getSubPath(parsedPath,0,i+1), undefined, undefined, opts)
 					}
 					metadataElem = metadataElem[key]
 				}
@@ -221,7 +221,7 @@ class PopulatingCache {
 				}
 				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
 					if (metadataElem[key][index].ttl < Date.now()) {
-						cacheElem = await this.fetchIfExpired(path.slice(0,i+1), undefined, undefined, opts)
+						cacheElem = await this.fetchIfExpired(this.getSubPath(parsedPath,0,i+1), undefined, undefined, opts)
 					}
 					metadataElem = metadataElem[key][index]
 				}
@@ -240,7 +240,7 @@ class PopulatingCache {
 				}
 				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
 					if (metadataElem[key][index]._ttl < Date.now()) {
-						cacheElem = await this.fetchIfExpired(path.slice(0,i+1), undefined, undefined, opts)
+						cacheElem = await this.fetchIfExpired(this.getSubPath(parsedPath,0,i+1), undefined, undefined, opts)
 					}
 					metadataElem = metadataElem[key][index]
 				}
@@ -446,7 +446,8 @@ class PopulatingCache {
 
 	
 	/**
-	 * Parse a path into an array of { key, id, index } objects.
+	 * Parse a path into a normalized array of `{ key, id, index, appendArray }` objects.
+	 * Internally populating-cache `put` and `get` use these normalized parsedPathes.
 	 * See README.md for a detailed description about pathes in populating-cache.
 	 *
 	 * @param {String|Array} path plain string or array of path elements
@@ -509,6 +510,27 @@ class PopulatingCache {
 		return result
 	}
 
+	/**
+	 * This is the inverse of `parsePath(path)`. This method takes a parsedPathArray as input
+	 * and converts it back to a path as used by `put` and `get`.
+	 * @param {Array} parsedPathArray parsedPath is an array of { id, key, index } objects as created by the `parsePath(path)` method
+	 * @param {Number} start start index in parsedPath Array to create sub pathes
+	 * @param {Number} end end index (exclusive) for sub path
+	 */
+	getSubPath(parsedPathArray, start = 0, end = parsedPathArray.length) {
+		if (!Array.isArray(parsedPathArray)) throw new Error("Need array to getSubPath()")
+		let result = []
+		for (let i = start; i < end; i++) {
+			const pathElem = parsedPathArray[i]
+			if (typeof pathElem !== "object") throw new Error("ParsedPath elems must be objects: "+JSON.stringify(pathElem))
+			else if (pathElem.id !== undefined) result.push({[pathElem.key]: pathElem.id})
+			else if (pathElem.index !== undefined) result.push(pathElem.key+"["+pathElem.index+"]")		// index may be 0 !
+			else if (pathElem.appendArray === true) result.push(pathElem.key+"[]")
+			else if (pathElem.id === undefined && pathElem.index === undefined) result.push(pathElem.key)
+			else throw new Error("Invalid parsedPath elem: "+JSON.stringify(pathElem))
+		}
+		return result
+	}
 
 	/**
 	 * Convert the given path to a REST URL path.

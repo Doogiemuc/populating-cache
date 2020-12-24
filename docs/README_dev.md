@@ -1,13 +1,12 @@
-# nod
+# Populating-Cache - Technical Guide
 
-[![NPM version](https://img.shields.io/npm/v/generator-nod.svg?style=flat-square)](https://npmjs.org/package/generator-nod)
-[![Build Status](https://img.shields.io/travis/diegohaz/nod/master.svg?style=flat-square)](https://travis-ci.org/diegohaz/nod) [![Coverage Status](https://img.shields.io/codecov/c/github/diegohaz/nod/master.svg?style=flat-square)](https://codecov.io/gh/diegohaz/nod/branch/master)
+This file contains detailed technical background information about the implementation of `populating-cache`. You do not need to know all this, if you only want to *use* `populating-cache` is a dependency in your project. For that have a look at the READEM.md
 
-NodeJS module generator/boilerplate.
+## NOD boilerplate
 
-<p align="center"><img src="https://cloud.githubusercontent.com/assets/3068563/21958520/77e4f45e-da97-11e6-9685-fe380a9cce3d.gif"></p>
+Populating-cache was baded on the awesome ["nod" NodeJS module generator/boilerplate](https://github.com/diegohaz/nod)
 
-## Features
+### NOD Features
 
 -   [**Babel**](https://babeljs.io/) - Write next generation JavaScript today.
 -   [**Jest**](https://facebook.github.io/jest) - JavaScript testing framework used by Facebook.
@@ -18,7 +17,7 @@ NodeJS module generator/boilerplate.
 -   [**Documentation**](http://documentation.js.org/) - A documentation system so good, you'll actually write documentation.
 -   [**Standard Version**](https://github.com/conventional-changelog/standard-version) - Automate versioning and CHANGELOG generation.
 
-## NPM run commands
+# NPM run commands
 
 ```sh
 $ npm test # run tests with Jest
@@ -28,10 +27,12 @@ $ npm run docs # generate docs
 $ npm run build # generate docs and transpile code
 ```
 
-### Publish
+# Publish
 
 ```sh
-$ npm release # 
+$ npm run release
+or to create a specific version:
+$ npm run release -- --release-as 4.0.0
 $ npm publish
 ```
 

@@ -234,8 +234,8 @@ test("Expired elements should be fetched from the backend", async () => {
 })
 
 test("Element with expired parent should be fetched from the backend", async () => {
-	const postPath = ["posts/11"]
-	const commentTextPath = ["posts/11", "comments[0]", "text"]
+	const postPath = [{posts:11}]
+	const commentTextPath = [{posts:11}, "comments[0]", "text"]
 	const postValue = { _id:11, comments: [{ _id: 4711, text: "This is a comment" }] }
 	const commentNewValue = "This is an updated comment"
 	const postValueNew = { _id:11, comments: [{ _id: 4711, text: commentNewValue }] }
@@ -244,7 +244,7 @@ test("Element with expired parent should be fetched from the backend", async () 
 	// It only returns that one specific post and should not be called otherwise within this test case
 	const fetchFunc = jest.fn((path) => {
 		//console.log("Call to mock backend for GET("+JSON.stringify(value)+")")
-		if (path.length === 1 && path[0] === postPath[0]) {
+		if (path.length === 1 && path[0].posts === 11) {
 			return Promise.resolve(postValueNew)
 		} else {
 			return Promise.reject("Invalid call to backend with path="+JSON.stringify(path))
