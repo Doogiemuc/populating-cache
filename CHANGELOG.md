@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [3.0.0](https://github.com/doogiemuc/populating-cache/compare/v2.2.0...v3.0.0) (2020-12-24)
+
+
+### Features
+
+* PUT: Append to end of array ([c37413c](https://github.com/doogiemuc/populating-cache/commit/c37413c2659d8aeda76af6afc35aff9321f6a063))
+* recursively populate fetched values ([6ef031d](https://github.com/doogiemuc/populating-cache/commit/6ef031df26593da5aa730105663061e61441e9a5))
+
 ## [2.2.0](https://github.com/doogiemuc/populating-cache/compare/v2.1.0...v2.2.0) (2020-12-22)
 
 
