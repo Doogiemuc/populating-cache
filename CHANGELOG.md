@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [3.1.0](https://github.com/doogiemuc/populating-cache/compare/v3.0.0...v3.1.0) (2020-12-25)
+
+
+### Features
+
+* remember() value fetched from backend ([c21d3ce](https://github.com/doogiemuc/populating-cache/commit/c21d3ce5bcd1e5c995c0d8e8ff2211c7cd957fee))
+
+
+### Bug Fixes
+
+* getSubPath correctly when fetching expired elements ([a58e1d7](https://github.com/doogiemuc/populating-cache/commit/a58e1d726cf46f0132f55361cc17622b6d127a31))
+
 ## [3.0.0](https://github.com/doogiemuc/populating-cache/compare/v2.2.0...v3.0.0) (2020-12-24)
 
 
