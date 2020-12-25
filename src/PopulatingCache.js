@@ -161,7 +161,7 @@ class PopulatingCache {
 	/**
 	 * Fetch a value from the cache. If the value isn't in the cache or if it is expired, 
 	 * then the backend will be queried for the value under `path`.
-	 * 
+	 *
 	 * When the backend is called, then the returned value will again be stored in the cache and its TTL will be updated.
 	 *
 	 * @param {String|Array} path array that forms the path to the value that shall be fetched.
@@ -191,12 +191,12 @@ class PopulatingCache {
 			// If path[i] is a plain string, then step into that key.
 			if (key && index === undefined && id === undefined) {
 				cacheElem = cacheElem[key]
-				// If there is no cacheElem under that key, then immideately call the backend.
+				// If there is no cacheElem under that key, then immideately call the backend for the full path.
 				if (!cacheElem) break 
 				// If cacheElem is a DBref, then (try to) populate it.
 				if (opts.populate && cacheElem[this.config.referencedPathAttr]) {
 					cacheElem = await this.get(
-						cacheElem[this.config.referencedPathAttr],		// path to referenced element in the cache
+						cacheElem[this.config.referencedPathAttr], // path to referenced element in the cache
 						opts
 					)
 				}
@@ -205,6 +205,8 @@ class PopulatingCache {
 				if (metadataElem && metadataElem[key]) {
 					if (metadataElem[key].ttl < Date.now()) {
 						cacheElem = await this.fetchIfExpired(this.getSubPath(parsedPath,0,i+1), undefined, undefined, opts)
+						//We cannot simply call this.fetchFunc(path, i), because we need the logic in fetchIfExpired, 
+						//e.g. reject when opts.DO_NOT_CALL_BACKEND and PUT the received value back into the cahge
 					}
 					metadataElem = metadataElem[key]
 				}
@@ -256,20 +258,6 @@ class PopulatingCache {
 	}
 
 	/**
-	 * Get a value from the cache. Or fetch it from the backend with fetchFunc,
-	 * if the value is not in the cache or expired.
-	 * FetchFunc will be called with param as path.
-	 * 
-	 * If your backend requires authentication, fetchFunc is responsible to handle that.
-	 * 
-	 * @param {Array|String} path path to value that you want to get from the cache
-	 * @param {Function} fetchFunc async function that will be called when the value is not in the cache (or expired)
-	 */
-	async getOrFetch(path, fetchFunc) {
-		return this.get(path, { fetchFunc: fetchFunc})
-	}
-
-	/**
 	 * This method decides if the backend needs to be called to fetch a given value.
 	 * The backend will be called, IF
 	 *  - cacheElem is null, ie. not yet in the cache
@@ -312,6 +300,23 @@ class PopulatingCache {
 	}
 
 	/**
+	 * Fetch a value from the backend and put it into the cache.
+	 * This will force a call to the backend, no matter if there alreay is a value in the cache.
+	 * If your backend requires authentication, fetchFunc is responsible to handle that.
+	 * 
+	 * @param {Array|String} path path to value that you want to get from the cache
+	 * @param {Function} fetchFunc async function that will be called to fetch the value
+	 */
+	async remember(path, fetchFunc) {
+		// The idea for this perfectly fitting method name is from https://yarkovaleksei.github.io/vue2-storage/en/api.html#set
+		if (!fetchFunc) return Promise.reject("Need a fetchFunc to remember a value for path"+JSON.stringify(path))
+		return fetchFunc(path).then(value => {
+			this.put(path, value)
+			return value
+		})
+	}
+
+	/**
 	 * Recursively populate all DBrefs in elem with a given property name, e.g.
 	 * populate all "createdBy" references (to "users") in an array of "posts":
 	 * `populate(posts, "createdBy")`
@@ -339,7 +344,7 @@ class PopulatingCache {
 				}
 			}
 		}
-		return elem
+		return Promise.resolve(elem)
 	}
 
 
@@ -361,9 +366,11 @@ class PopulatingCache {
 	 * Check if a path points to a defined and not yet expired value in the cache.
 	 * If the value is expired, the backend will not be called.
 	 * If path points to an `undefined` value, then isInCache will return false.
+	 * This method will not change the content of the cache or metadata and will not call the backend at all.
+	 * 
 	 * @param {Array} path path to an element in the cache
 	 * @param {Boolean} populate wether to populate DBrefs along path
-	 * @return {Boolean} true if there is a value !== undefind in the cache and it is not yet expired.
+	 * @return {Promise} resolvs to true if there is a value !== undefind at that path and it is not yet expired.
 	 */
 	isInCache(path) {
 		return this.get(path, {callBackend: this.DO_NOT_CALL_BACKEND})
@@ -592,8 +599,9 @@ const DEFAULT_CONFIG = {
 	// ===== options for GET =====
 
 	// Global fetchFunc that will be called with path when a value needs to be fetched from the backend.
-	// fetchFunc MUST return a Promise, e.g. myFetchFunc(path) => { return Promise.resolve(valueFromBackend )}
-	// You can also provide an individual fetchFunc to each getOrFetch(path, individualFetchFunc) call.
+	// fetchFunc MUST return a Promise, e.g. 
+	// `myFetchFunc(path) => { return Promise.resolve(valueFromBackend )}`
+	// You can also provide an individual fetchFunc to each `get`call.
 	fetchFunc: undefined,
 
 	// Call backend when value in cache is expired (or not there at all)
@@ -619,9 +627,6 @@ const DEFAULT_CONFIG = {
 	// Merge object properties into existing values when PUTing
 	merge: false,
 
-	// append to end of array
-	append: false,
-	
 }
 
 /** 
