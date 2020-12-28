@@ -18,9 +18,10 @@ test("PUT a value into the cache and GET it back", () => {
 
 test.each([
 	["keyOne", "value1"],
+	["parentKey.childKey", "value2"],
 	[[{ keyTwo: 3 }], { _id: 3, foo: "bar" }],
-	[["key1", { keyWithId: 4 }, { secondKeyWithId: 3 }, "childAttr"], "value2"],
-	[["arrayOne[3]", { subkey: "stringkey" }, "childKey2/12", "var"], "value4"],
+	[["key1", { keyWithId: 4 }, { secondKeyWithId: 3 }, "childAttr"], "value4"],
+	[["arrayOne[3]", { subkey: "stringkey" }, "childKey2/12", "var"], "value5"],
 ])("PUT and GET: %j = %j", (path, value) => {
 	const alwaysReject = jest.fn(() => Promise.reject(new Error("Should not be called")))
 	const cache = new PopulatingChache({fetchFunc: alwaysReject})
@@ -133,19 +134,20 @@ test("Populate several references", async () => {
 
 test("TTL is checked correctly, when populating a path", async () => {
 	// GIVEN a post's comment that references a User
-	const commentPath = ["posts/11", "comments[0]"]
-	const emailPath   = ["posts/11", "comments[0]", "createdBy", "email"]
-	const userEmail   = "someuser@domain.com"
-	const fetchFunc = jest.fn((path) => {
-		if (path.length === emailPath.length && path[path.length-1] === emailPath[emailPath.length-1]) return Promise.resolve(userEmail)
-		else return Promise.resolve("This should not have been called with path="+JSON.stringify(path))
-	})
-	const cache = new PopulatingChache({fetchFunc: fetchFunc})
-	cache.put(commentPath, {
+	const commentPath = [{posts:"11"}, "comments[0]"]
+	const comment = {
 		_id: 4711,
 		text: "this is a comment",
 		createdBy: { $refPath: "users/abc67" },
+	}
+	const emailPath   = ["posts/11", "comments[0]", "createdBy", "email"]
+	const userEmail   = "someuser@domain.com"
+	const fetchFunc = jest.fn((path) => {
+		if (path.length === commentPath.length) return Promise.resolve(comment)
+		else return Promise.resolve("This should not have been called with path="+JSON.stringify(path))
 	})
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
+	cache.put(commentPath, comment)
 	cache.put(["users/abc67"], {
 		_id: "abc67",
 		username: "SomeUser",
@@ -154,7 +156,7 @@ test("TTL is checked correctly, when populating a path", async () => {
 
 	// AND the comment's TTL is expired
 	let commentMetadata = cache.getMetadata(commentPath)
-	commentMetadata["_ttl"] = 1
+	commentMetadata.ttl = 1
 
 	// WHEN we fetch the createdBy.email
 	const res = await cache.get(emailPath)
@@ -162,7 +164,7 @@ test("TTL is checked correctly, when populating a path", async () => {
 	// THEN the comment is fetched from the backend. (not the user!)
 	expect(res).toBe("someuser@domain.com")
 	expect(fetchFunc.mock.calls.length).toBe(1)
-	expect(fetchFunc.mock.calls[0][0]).toEqual(emailPath)   // first argument of first call should be this
+	expect(fetchFunc.mock.calls[0][0]).toEqual(commentPath) // first argument of first call should be this
 })
 
 
@@ -209,6 +211,35 @@ test("Check if value is already in cache", async () => {
 	expect(fetchFunc.mock.calls.length).toBe(0)
 })
 
+test("GEt a value synchronously", async () => {
+	// GIVEN a value in the cache
+	const path = ["parentKey", "childKey"]
+	const value = "bar"
+	const nothingHerePath = ["nothingHere"]
+	const fetchFunc = jest.fn(() => Promise.reject("Should not be called. Only check if value is in cache."))
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
+	cache.put(path, value)
+
+	// WHEN get a value sync.
+	const res = cache.getSync(path)
+	// THEN the value is returned
+	expect(res).toEqual(value)
+	expect(fetchFunc.mock.calls.length).toBe(0)
+
+	// WHEN we try to get a value that is not in the cache
+	let res2 = cache.getSync(nothingHerePath)
+	// THEN undefined is returned
+	expect(res2).toBe(undefined)
+	expect(fetchFunc.mock.calls.length).toBe(0)
+	
+	// WHEN a value is expired
+	const metadata = cache.getMetadata(path)
+	metadata.ttl = 1
+	expect(() => {
+		cache.getSync(path)
+	}).toThrow("expired")
+})
+
 test("Expired elements should be fetched from the backend", async () => {
 	const path = ["fooKey"]
 	const value = { _id: 43, text: "this is comment 43" }
@@ -224,7 +255,7 @@ test("Expired elements should be fetched from the backend", async () => {
 
 	// Set TTL to way in the past
 	const metadata = cache.getMetadata(path)
-	metadata._ttl = 1
+	metadata.ttl = 1
 
 	// Second call should be fetched from the backend
 	const res2 = await cache.get(path)
@@ -260,7 +291,7 @@ test("Element with expired parent should be fetched from the backend", async () 
 
 	// Set TTL to way in the past
 	const metadata = cache.getMetadata(postPath)
-	metadata._ttl = 1
+	metadata.ttl = 1
 
 	// Second call should be fetched from the backend
 	const res2 = await cache.get(commentTextPath)
@@ -279,17 +310,16 @@ test("Delete all expired elems in the cache", async () => {
 
 	//WHEN Set TTL of key2 to way in the past
 	const metadata = cache.getMetadata("key2")
-	metadata._ttl = 1
+	metadata.ttl = 1
 	// AND 
 	cache.deleteExpiredElems()
 
 	//THEN key1 should still be in the cache and key2 should be deleted
-
 	let cacheData = cache.getCacheData()
 	expect(cacheData["key1"]).toBe("val1")
 	const res1 = await cache.get("key1")
 	expect(res1).toEqual("val1")
-	let isInCache = await cache.isInCache("key2")
+	let isInCache = cache.isInCache("key2")
 	expect(isInCache).toBe(false)
 	expect(fetchFunc.mock.calls.length).toBe(0)
 })
