@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [3.2.1](https://github.com/doogiemuc/populating-cache/compare/v3.1.0...v3.2.1) (2020-12-28)
+
+
+### Bug Fixes
+
+* name of ttl and handling of options ([8936a14](https://github.com/doogiemuc/populating-cache/commit/8936a14d990a8b86280e525d25f0fe91201f27c3))
+
 ## [3.1.0](https://github.com/doogiemuc/populating-cache/compare/v3.0.0...v3.1.0) (2020-12-25)
 
 
