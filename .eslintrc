@@ -2,7 +2,7 @@
   "parser": "babel-eslint",
   "extends": [
 		"eslint:recommended",
-		//"plugin:jest/recommended"
+		"plugin:jest/recommended"
 		//"airbnb-base"
     //"plugin:prettier/recommended"
   ],
