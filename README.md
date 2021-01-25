@@ -28,43 +28,52 @@ import PopulatingCache from 'populating-cache'  // the module exports a class
  * When a value needs to be fetched from the backend 
  * then populating-cache will call this function that you must provide.
  * @param {Array} path to the value that needs to be fetched,
- *                e.g. ["posts/ad4e-45fd", "comments"]
- * @return {Promise} value fetched from the backend
+ *                e.g. [{posts: 4711}, "comments"]
+ * @return {Promise} value that you fetched from your backend
  */
 let fetchFunc = function(path) {
   // [...] call backend, make REST request, etc.
   return Promise.resolve(valueFetchedFromBackend)
 }
 
-// Create a new cache intance
-let cache = new PopulatingCache(fetchFunc)
+// Configuration of your cache instance. See below for defaults.
+const cacheConfig = {
+  fetchFunc: fetchFunc,
+  ttl: 60 * 1000    // time to live for elements in the cache
+}
+
+// Create a new cache intance with that config
+let cache = new PopulatingCache(cacheConfig)
 
 // PUT values into the cache and store them for later
 cache.put("key1", "Just any value")
 cache.put("key2", {foo: "bar"} )
-cache.put("key3", [1,2,"three"] )
 // GET a value back from the cache:
-let value = await cache.get("someKey")
+let value = await cache.get("key1")   // value == "Just any value"
 
-// store one array item
-cache.put("array[4]", "fifth item") 
-let arrayItem = await get("array[4]")
-let fullArray = await get("array")
+// PUT an array into the cache
+cache.put("myArray", [1,2,3,4] )
+cache.put("myArray[5]", 5) 
+let arrayItem = await cache.get("myArray[5]")  // 5
+let fullArray = await cache.get("myArray")     // [1,2,3,4,5]
 
-// Store a value with an _id in an array
-cache.put("posts/4711", { _id:4711, title: "Blog post title"})
-// If the passed value does not have an _id property,
-// then populating-cache will automatically add the _id from the path,
-// so that you can always receive the value back under that same path:
-let post = await cache.get("posts/4711")
-
-// get(path) will automatically call fetchFunc(path) if there is 
-// no value or an expired value under that path.
-// Therefore get() is an asynchrounous function. It returns a Promise.
-// When a value is fetched from the backend, 
-// then it is automatically cached for future get calls.
-let valueFromBackend = await cache.get("key2")
+// PUT an object with an _id into the cache
+let aPost = { _id:4711, title: "Blog post title"}
+cache.put("posts/4711", aPost)
+let cachedPost = await cache.get("posts/4711")  // cachedPost == aPost
 ```
+
+## Fetch a value from the backend
+
+When you try to `get` a value that is either not yet in the cache or already expired, then it is fetched from the backend. Populating-cache will
+ 1. call your `fetchFunc(path)` to receive the current value from the backend
+ 2. `put` the returned value into the cache
+ 3. update its TTL
+ 4. then `get(path)` returns the value as returned by your `fetchFunc()`
+
+
+
+
 
 ## Populating cache is a tree structure
 
@@ -111,24 +120,32 @@ cache.put([{posts:"af3d-e3ff"}, {comments:"4ccf-ff33"}, "createdBy"], user)
 
 ## Time to life (TTL)
 
-When you `put` a value into the cache, then metadata about that value will also be stored. Each value can have a time to life after which it expires. When you try to `get` and expired value,
-then it is be refetched from the backend. When a value is expired, then also all its children are considered to be expired. (But not referenced entities. They have their own TTL.)
+Each value in the cache can have a time to life after which it expires. When you try to `get` an expired value, then it is refetched from the backend by calling your `fetchFunc()`.
+
+For simple keys this is simple. But since populating-cache is a tree structure, this can become more complex.
+
+When you fetch a deep value at the end of a long `path`, then **all intermediate elements in the cache are also checked.**
+If an intermediate element is expired, then the element at this subpath is fetched.
+
+Example:
 
 ```javascript
-cacheMetadata = {
-  "posts": [...],
-  "users": [
-    {
-      _id: 901,
-      ttl: 123  //  <= EXPIRED!
-    },
-    {
-      _id: 902,
-      ttl: 25263426457 // +5 days
-    },
-  ]
-}
+// put a user object into the cache
+cache.put("data.user", { name: "username", email: "john.doe@domain.com")
+// ... some time passes, until the user entitry expires in the cache ...
+let email = cache.get("data.user.email")
 ```
+
+Since the `user` element is already expired, this will call `fetchFunc`. The `path` parameter will be the *parsed sub path* to the expired `user` element `["data", "user"]`:
+
+```javascript
+  let parsedSubPath = ["data", "user"]
+  let valueFromBackend = this.fetchFunc(parsedSubPath)
+  this.put(parsedSubPath, valueFromBackend)   // update TTL
+  return parsedSubPath
+```
+
+ 
 
 ## Populate DB references (DBref)
 
