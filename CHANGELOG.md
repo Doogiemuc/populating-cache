@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [4.1.0](https://github.com/doogiemuc/populating-cache/compare/v3.2.1...v4.1.0) (2021-01-25)
+
+
+### Features
+
+* improved parsing of path ([7b375ed](https://github.com/doogiemuc/populating-cache/commit/7b375ed44de90f67ffd990f7ea5dff1c110391a4))
+
 ### [3.2.1](https://github.com/doogiemuc/populating-cache/compare/v3.1.0...v3.2.1) (2020-12-28)
 
 
