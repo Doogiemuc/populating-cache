@@ -132,7 +132,7 @@ Example:
 ```javascript
 // put a user object into the cache
 cache.put("data.user", { name: "username", email: "john.doe@domain.com")
-// ... some time passes, until the user entitry expires in the cache ...
+// ... some time passes, until the user entity expires in the cache ...
 let email = cache.get("data.user.email")
 ```
 

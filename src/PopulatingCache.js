@@ -128,7 +128,8 @@ class PopulatingCache {
 					metadataElem = metadataElem[key][index] || (metadataElem[key][index] = {[opts.idAttr]: id})
 				} else {
 					// If value is not an object then wrap it in an object and add id, so that we can receive it back under that path.
-					if (typeof value !== "object") value = { [opts.idAttr]: id, value }
+					if (typeof value !== "object") 
+						throw new Error("You cannot PUT a scalar value under an ID. Must be object with "+opts.idAttr)
 					// If value has a different (or missing) ID than what the last element of path declares, then we must correct value here
 					// to satisfy the always valid invariant `cache.put(path, value)  => cache.get(path) = value`
 					if (value && value[opts.idAttr] && value[opts.idAttr] != id) {
@@ -136,8 +137,8 @@ class PopulatingCache {
 						  But your value had value.${opts.idAttr}=${value[opts.idAttr]}.`)
 					}
 					if (value && value[opts.idAttr] === undefined) {
-						console.warn(`You tried to PUT an object value without an ${opts.idAttr}`+
-							`at path ${JSON.stringify(path)}. I added id=${id}`)
+						console.warn(`You tried to PUT an object value without an ${opts.idAttr} `+
+							`at path ${JSON.stringify(path)}. I added ${opts.idAttr}=${id}`)
 						value[opts.idAttr] = id
 					}
 					if (opts.merge && typeof value === "object") {
@@ -185,7 +186,7 @@ class PopulatingCache {
 		if (typeof opts.fetchFunc !== "function") return Promise.reject("Need fetchFunc to fetch value at path="+JSON.stringify(path))
 		const parsedPath = this.parsePath(path)
 
-		// Walk along path try to find the value and the end of path.
+		// Walk along parsedPath try to find the value and the end of it.
 		for (let i = 0; i < parsedPath.length; i++) {
 			const key = parsedPath[i].key
 			const id = parsedPath[i].id
@@ -255,7 +256,8 @@ class PopulatingCache {
 		}
 
 		// Check if cacheElem is expired. Return it or fetch it from the backend if necessary or forced by options
-		return this.fetchIfExpired(path, cacheElem, metadataElem, opts)
+		// BUGFIX: Don't simply pass `path`. Instead pass the normalized path.
+		return this.fetchIfExpired(this.getSubPath(parsedPath,0,parsedPath.length), cacheElem, metadataElem, opts)
 	}
 
 	/**
@@ -516,7 +518,7 @@ class PopulatingCache {
 	
 	/**
 	 * Parse a path into a normalized array of `{ key, id, index, appendArray }` objects.
-	 * Internally populating-cache `put` and `get` use these normalized parsedPathes.
+	 * <b>Internally</b> populating-cache uses these normalized pathes.
 	 * See README.md for a detailed description about pathes in populating-cache.
 	 *
 	 * @param {String|Array} path plain string or array of path elements
@@ -555,10 +557,14 @@ class PopulatingCache {
 				if (match.groups.id && match.groups.index) 
 					throw new Error(`Cannot use index and id at the same time in path[${i}]=${pathElem}`)
 				result[i] = {
-					key: match.groups.key,
-					id: match.groups.id, // may also be undefined for plain string keys
-					index: match.groups.index ? parseInt(match.groups.index, 10) : undefined,
+					key:   match.groups.key,
 				}
+				if (match.groups.idNum) {
+					result[i].id = parseInt(match.groups.idNum)
+				} else if (match.groups.id) {
+					result[i].id = match.groups.id 
+				}
+				if (match.groups.index) result[i].index = parseInt(match.groups.index, 10)
 				if (match.groups.appendArray === '[]') result[i].appendArray = true
 			} else if (
 				typeof pathElem === "object" &&
@@ -568,7 +574,6 @@ class PopulatingCache {
 				result[i] = {
 					key: Object.keys(pathElem)[0],
 					id: Object.values(pathElem)[0],
-					index: undefined
 				}
 			} else {
 				throw new Error(
@@ -581,7 +586,7 @@ class PopulatingCache {
 
 	/**
 	 * This is the inverse of `parsePath(path)`. This method takes a parsedPathArray as input
-	 * and converts it back to a path as used by `put` and `get`.
+	 * and converts it back to a path as used by `put`, `get` and `fetchFunc`
 	 * @param {Array} parsedPathArray parsedPath is an array of { id, key, index } objects as created by the `parsePath(path)` method
 	 * @param {Number} start start index in parsedPath Array to create sub pathes
 	 * @param {Number} end end index (exclusive) for sub path
@@ -693,13 +698,18 @@ const DEFAULT_CONFIG = {
 /** 
  * Unbelievably clever RegEx to extract {key, id, index} from path elements of type string :-) 
  * 
- * First we have a key: One more more characters. Must start with a letter or underscore or dollar. May later contain hyphen(-).
- * Then either an array index in brackets
- * or only brackets to append to an array (but only in the last element of path)
- * or a slash with an alphanumercial id, e.g. key/3d4f-abc5
+ * The pathElem will be split into the following tokens:
+ * First a  key. Must start with a letter, underscore or dollar. Then further leters, numbers, underscore, dollar or hyphen(-), 
+ * e.g.  "foo", "$bar", "_foo42" or "b535-dd434-dd532", but not ".abc"
+ * 
+ * Then three optional parts
+ *  - index: number in square brackts, e.g. "[42]""
+ *  - appendArray: two square brackets without a numbe: "[]"
+ *  - id: alphanumerical ID, e.g. "034de-3335-ff35" or "ADD3XU"
+ *  - idNum: numerical ID, eg  "4325"
  */
 // eslint-disable-next-line max-len
-const pathElemRegEx = /^(?<key>[a-zA-Z_$][0-9a-zA-Z-_$]*)((\[(?<index>\d+)\])|(?<appendArray>\[\])|(\/(?<id>[0-9a-zA-Z_$][0-9a-zA-Z-_$]*)))?$/
+const pathElemRegEx = /^(?<key>[a-zA-Z_$][0-9a-zA-Z-_$]*)((\[(?<index>\d+)\])|(?<appendArray>\[\])|(\/(?<idNum>[0-9]+))|(\/(?<id>[0-9a-zA-Z_$][0-9a-zA-Z-_$]*)))?$/
 
 
 

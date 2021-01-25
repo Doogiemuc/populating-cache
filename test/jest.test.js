@@ -16,6 +16,9 @@ test("PUT a value into the cache and GET it back", () => {
 	})
 })
 
+/**
+ * Test basic caching
+ */
 test.each([
 	["keyOne", "value1"],
 	["parentKey.childKey", "value2"],
@@ -32,22 +35,22 @@ test.each([
 	})
 })
 
-/**
+/*
  * Test some edge cases. These actually are wrong usages of populating-cache.
  * But the cache is clever enough to correct these as good as possible.
+ * 
+ * This test outputs a warning on the console. Therefore we skip it.
  */
-test.each([
-	[["missingId/99"], "plainString", { _id: "99", value: "plainString" }],	// not an object: Will wrap and add id
-	[["missingId/99"], "anything", { _id: "99", value: "anything" }], 			// no object => will automatically wrap and add id
-])("PUT and GET: %j = %j", (path, value, expected) => {
-	const alwaysReject = jest.fn(() =>
-		Promise.reject(new Error("Should not be called"))
-	)
+test("PUT automatically adds ID when its missing and warns on console", () => {
+	let path =  ["missingId/98"]
+	let value = { foo: "plainString" }
+	let expectedValue = { _id: 98, foo: "plainString" }
+	const alwaysReject = jest.fn(() => Promise.reject(new Error("Should not be called")))
 	const cache = new PopulatingChache({fetchFunc: alwaysReject})
 	cache.put(path, value)
 	return cache.get(path).then((returnedValue) => {
 		expect(alwaysReject.mock.calls.length).toBe(0)
-		expect(returnedValue).toEqual(expected)
+		expect(returnedValue).toEqual(expectedValue)
 	})
 })
 
@@ -134,7 +137,7 @@ test("Populate several references", async () => {
 
 test("TTL is checked correctly, when populating a path", async () => {
 	// GIVEN a post's comment that references a User
-	const commentPath = [{posts:"11"}, "comments[0]"]
+	const commentPath = [{posts:11}, "comments[0]"]
 	const comment = {
 		_id: 4711,
 		text: "this is a comment",
@@ -164,7 +167,7 @@ test("TTL is checked correctly, when populating a path", async () => {
 	// THEN the comment is fetched from the backend. (not the user!)
 	expect(res).toBe("someuser@domain.com")
 	expect(fetchFunc.mock.calls.length).toBe(1)
-	expect(fetchFunc.mock.calls[0][0]).toEqual(commentPath) // first argument of first call should be this
+	expect(fetchFunc.mock.calls[0][0]).toStrictEqual(commentPath) // first argument of first call should be this
 })
 
 
@@ -347,11 +350,34 @@ test("Append to array", async () => {
 	expect(val).toEqual("two")
 })
 
+
+/**
+ * Test parsing of path and that fetchFunc is called with correct path
+ */
+test.each([
+	["keyOne", "value1", "value2",  ["keyOne"]],
+	["one.two.three", "value1", "value", ["one", "two", "three"]],
+	["polls/ab3f-4d45", { _id: "ab3f-4d45", val:"Eins"}, { _id: "ab3f-4d45", val:"Zwei"}, [{polls: "ab3f-4d45"}]],  // alphanumeric ID
+	["polls/4711", { _id: 4711, val:"Eins"}, { _id: 4711, val:"Zwei"}, [{polls: 4711}]],      // ID normalized to Number
+	[[{polls: 4711}], { _id: 4711, val:"Eins"}, { _id: 4711, val:"Zwei"}, [{polls: 4711}]],   // numerical ID everywhere
+])("Test correct param for fetchFunc: %j => %j", async (path, value, updatedValue, paramToFechFunc) => {
+	//eslint-disable-next-line no-unused-vars
+	const fetchFunc = jest.fn((pathArg) => Promise.resolve(updatedValue))
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
+	cache.put(path, value)
+	return cache.get(path, {callBackend: cache.FORCE_BACKEND_CALL}).then((returnedValue) => {
+		expect(fetchFunc.mock.calls.length).toBe(1)
+		expect(fetchFunc.mock.calls[0][0]).toStrictEqual(paramToFechFunc)   // deepEqual!
+		expect(returnedValue).toEqual(updatedValue)
+	})
+})
+
 test.each([
 	["abc",      [{key: "abc"}]],
 	["$adfsf",   [{key: "$adfsf"}]],
 	["abc[42]",  [{key: "abc", index: 42}]],
-	["abc/4711", [{key: "abc", id: "4711"}]],
+	["abc/4711", [{key: "abc", id: 4711}]],   // numerical ID
+	["abc/abde-fa3d", [{key: "abc", id: "abde-fa3d"}]],   // numerical ID
 	[["abc", {foo:"bar"}], [{key: "abc"}, {key: "foo", id:"bar"}]],
 	["parent.child/5a3f.three", [{key: "parent"}, {key: "child", id:"5a3f"}, {key: "three"}]],
 	["one.array[]", [{key:"one"}, {key:"array", appendArray: true}]]
@@ -359,6 +385,6 @@ test.each([
 	const fetchFunc = jest.fn(() => Promise.reject("should not be called in parsePath test"))
 	const cache = new PopulatingChache({fetchFunc: fetchFunc})
 	const actual = cache.parsePath(path)
-	expect(actual).toEqual(expectedResult)
+	expect(actual).toStrictEqual(expectedResult)
 	expect(fetchFunc.mock.calls.length).toBe(0)
 })
