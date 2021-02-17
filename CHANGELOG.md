@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [5.2.1](https://github.com/doogiemuc/populating-cache/compare/v5.2.0...v5.2.1) (2021-02-17)
+
+
+### Bug Fixes
+
+* Cleanup test and release scripts ([ee37e0f](https://github.com/doogiemuc/populating-cache/commit/ee37e0f05e11609481c108dbc3ebe4f89a56e87b))
+
 ## [5.2.0](https://github.com/doogiemuc/populating-cache/compare/v5.1.1...v5.2.0) (2021-02-17)
 
 ### [5.1.1](https://github.com/doogiemuc/populating-cache/compare/v5.1.0...v5.1.1) (2021-02-17)
