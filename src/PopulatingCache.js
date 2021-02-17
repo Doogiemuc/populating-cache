@@ -302,14 +302,26 @@ class PopulatingCache {
 	}
 
 	/**
-	 * Synchronously get a value from the cache. This method will *not* call the backend.
-	 * If path points to an expired value, then this method throws an Error("expired") that you can catch.
-	 * getSync can do population, but only with values that already are in the cache.
+	 * This is a synchrounous version of get(). getSync() does not return a Promise. It returns the value at path directly
+	 * if there is a valid value in the cache.
+	 * 
+	 * getSync() will not call the backend It can only return values that already are in the cache.
+	 * 
+	 * When there is a value in the cache, but it is expired, then there are two possible scenarios:
+	 * 1. Simply return null to the caller. (This is the default)
+	 * 2. Throw an Error. This way the caller can distinguish between not in the cache at all" or "expired value at that path"
+	 * 
+	 * getSync() can do population, but only with values that already are in the cache.
+	 * 
 	 * @param {Array} path path to value in cache
 	 * @param {Object} options optionally override configuration options  (callBackend is ignored in this method.)
-	 * @returns {*} the value from the cache if there is one.
+	 * @param {Boolean} throwWhenExpired should the method throw when path poitns to an expired element.
+	 *   This way the caller can distinguish between "not in the cache at all" or "expired value at path".
+	 * @returns {*} the value from the cache if there is one. (getSync() does not return a Promise, but the value itself.)
+	 * @throws Error when an element along path is expired and throwWhenExpired = true. Otherwiese null is returned for expired values.
+	 *     Also throws when path is invalid.
 	 */
-	getSync(path, options) {
+	getSync(path, options, throwWhenExpired = false) {
 		let cacheElem = this.cacheData || {}
 		let metadataElem = this.cacheMetadata || {}
 		let opts = {...this.config, ...options}
@@ -330,7 +342,11 @@ class PopulatingCache {
 				}
 				if (metadataElem && metadataElem[key]) {
 					if (metadataElem[key].ttl < Date.now()) {
-						throw new Error("expired")
+						if (throwWhenExpired) { 
+							throw new Error("getSync(): The value at path " + JSON.stringify(path) + "is expired.") 
+						}	else { 
+							return undefined
+						}
 					}
 					metadataElem = metadataElem[key]
 				}
@@ -343,8 +359,12 @@ class PopulatingCache {
 					cacheElem = this.getSync(cacheElem[opts.referencedPathAttr], opts)
 				}
 				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
-					if (metadataElem[key][index].ttl < Date.now()) {
-						throw new Error("expired")
+					if (metadataElem[key].ttl < Date.now()) {
+						if (throwWhenExpired) { 
+							throw new Error("getSync(): The value at path " + JSON.stringify(path) + "is expired.") 
+						}	else { 
+							return undefined
+						}
 					}
 					metadataElem = metadataElem[key][index]
 				}
@@ -359,8 +379,12 @@ class PopulatingCache {
 					cacheElem = this.getSync(cacheElem[opts.referencedPathAttr], opts)
 				}
 				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
-					if (metadataElem[key][index].ttl < Date.now()) {
-						throw new Error("expired")
+					if (metadataElem[key].ttl < Date.now()) {
+						if (throwWhenExpired) { 
+							throw new Error("getSync(): The value at path " + JSON.stringify(path) + "is expired.") 
+						}	else { 
+							return undefined
+						}
 					}
 					metadataElem = metadataElem[key][index]
 				}

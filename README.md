@@ -94,14 +94,16 @@ When you `get` something from the cache, you will receive that cache element and
 
 A `path` defines where a value will be stored in the cache. It is an _array of path elements_ from the root of the cache to the position of value in the cache. When you call `put(path, value)` then the algorithm walks along `path` and and then stores `value` at the end of this path. All intermediate elements along the path (objects & arrays) will automatically be created if necessary.
 
-Each path element must be one of:
 
--   a plain string. Value will be stored under that key, e.g. `"childKey"`
--   an array with index. Value will be stored in this array element, e.g. `"array[7]"`
--   a string in the format `key/_id`, e.g. `"posts/af3d-e3ff"`. Value will be stored under the array element with that `_id` (The name of your `_id`-attribute can be configured)
--   or an object for the same purpose, e.g. `{posts: "af3d-e3ff"}`
+| Normalized form | Shortcut | Description
+|-|-|-
+| ["myKey"] | "myKey" | Key at root level in cache
+| ["abc", "def", ghi"] | abc.def.ghi | deep path into cache
+| ["myArray[3]"] | "myArray[3]" |  the n-th element of an array
+| [{object: id}] | "object/id" | the object element of the array that has that `_id`
+| ["abc", {foo: "ID-4711}, "bar"] | abc.foo/ID-4711.bar | all type elements can appear in one path
 
-When you `put` a value in the cache, then the last element in the path may be the name of an array with brackets, e.g. `myArray[]`. This means: _Append_ value to the end of `myArray`.
+> You may pass the shortcut form to PUT and GET. Populating-cache will always call your fetch function with the normalized form.
 
 ## Examples for usage of path
 

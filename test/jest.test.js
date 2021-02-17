@@ -238,8 +238,9 @@ test("GEt a value synchronously", async () => {
 	// WHEN a value is expired
 	const metadata = cache.getMetadata(path)
 	metadata.ttl = 1
+	// THEN getSync() can throw
 	expect(() => {
-		cache.getSync(path)
+		cache.getSync(path, {}, true)
 	}).toThrow("expired")
 })
 

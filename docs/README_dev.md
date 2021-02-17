@@ -30,10 +30,15 @@ $ npm run build # generate docs and transpile code
 # Publish
 
 ```sh
+# create next minor release
 $ npm run release
-or to create a specific version:
+# or to create a specific version:
 $ npm run release -- --release-as 4.0.0
-$ npm publish
+# or to create next major version:
+$ npm run release -- --release-as minor
+
+$ npm publish   
+# Will then automatically run postpublish
 ```
 
 It'll automatically run `test`, `lint`, `docs`, `build`, generate `CHANGELOG.md`, and push commits and tags to the remote repository.
