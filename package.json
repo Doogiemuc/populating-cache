@@ -25,6 +25,8 @@
     "build": "babel src -d dist",
     "prerelease": "npm run lint && npm test && npm run build",
     "release": "standard-version",
+		"release-minor": "standard-version --release-as minor",
+		"release-major": "standard-version --release-as major",
     "postpublish": "git push origin main --follow-tags"
   },
   "husky": {

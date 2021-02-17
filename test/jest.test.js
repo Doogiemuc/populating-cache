@@ -35,12 +35,15 @@ test.each([
 	})
 })
 
+/* eslint-disable jest/no-commented-out-tests */
 /*
  * Test some edge cases. These actually are wrong usages of populating-cache.
  * But the cache is clever enough to correct these as good as possible.
  * 
  * This test outputs a warning on the console. Therefore we skip it.
- */
+
+  Currently deactivated to prevent the warning when releasing.
+
 test("PUT automatically adds ID when its missing and warns on console", () => {
 	let path =  ["missingId/98"]
 	let value = { foo: "plainString" }
@@ -53,6 +56,7 @@ test("PUT automatically adds ID when its missing and warns on console", () => {
 		expect(returnedValue).toEqual(expectedValue)
 	})
 })
+*/
 
 test("PUT throws error on ID mismatch", () => {
 	const cache = new PopulatingChache()
