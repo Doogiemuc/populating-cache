@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [5.1.0](https://github.com/doogiemuc/populating-cache/compare/v5.0.0...v5.1.0) (2021-02-17)
+
+
+### Features
+
+* getSync() can now be configured wether it should throw or not ([7e6688a](https://github.com/doogiemuc/populating-cache/commit/7e6688aa6df47af0071bf728ec8749bf35460bf4))
+
 ## [5.0.0](https://github.com/doogiemuc/populating-cache/compare/v4.1.0...v5.0.0) (2021-02-17)
 
 ## [4.1.0](https://github.com/doogiemuc/populating-cache/compare/v3.2.1...v4.1.0) (2021-01-25)
