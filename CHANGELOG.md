@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [5.0.0](https://github.com/doogiemuc/populating-cache/compare/v4.1.0...v5.0.0) (2021-02-17)
+
 ## [4.1.0](https://github.com/doogiemuc/populating-cache/compare/v3.2.1...v4.1.0) (2021-01-25)
 
 
