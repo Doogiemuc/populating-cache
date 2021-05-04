@@ -17,12 +17,13 @@ test("PUT a value into the cache and GET it back", () => {
 })
 
 /**
- * Test basic caching
+ * Test basic PUT and parsing of path
  */
 test.each([
 	["keyOne", "value1"],
 	["parentKey.childKey", "value2"],
-	[[{ keyTwo: 3 }], { _id: 3, foo: "bar" }],
+	[{ onlyObject: 222}, {_id: 222, foo: "bar"}],
+	[[{ keyTwo: 3 }], { _id: 3, foo: "barbar" }],
 	[["key1", { keyWithId: 4 }, { secondKeyWithId: 3 }, "childAttr"], "value4"],
 	[["arrayOne[3]", { subkey: "stringkey" }, "childKey2/12", "var"], "value5"],
 ])("PUT and GET: %j = %j", (path, value) => {
@@ -381,8 +382,9 @@ test.each([
 	["abc",      [{key: "abc"}]],
 	["$adfsf",   [{key: "$adfsf"}]],
 	["abc[42]",  [{key: "abc", index: 42}]],
-	["abc/4711", [{key: "abc", id: 4711}]],   // numerical ID
-	["abc/abde-fa3d", [{key: "abc", id: "abde-fa3d"}]],   // numerical ID
+	["abc/4711", [{key: "abc", id: 4711}]],               // numerical ID
+	["abc/abde-fa3d", [{key: "abc", id: "abde-fa3d"}]],   // alpha numerical ID
+	[ { someObj: 4711 }, [{key: "someObj", id: 4711 }]],   // just one object as input
 	[["abc", {foo:"bar"}], [{key: "abc"}, {key: "foo", id:"bar"}]],
 	["parent.child/5a3f.three", [{key: "parent"}, {key: "child", id:"5a3f"}, {key: "three"}]],
 	["one.array[]", [{key:"one"}, {key:"array", appendArray: true}]]

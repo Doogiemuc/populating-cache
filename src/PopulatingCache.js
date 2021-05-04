@@ -552,20 +552,21 @@ class PopulatingCache {
 	parsePath(path) {
 		let result = []
 		if (!path) throw new Error("Cannot parse empty path.")
-
-		// If path is just a string, then split it at the dots or otherwise wrap it into an array.
 		if (typeof path === "string") {
+			// If path is just a string, then split it at the dots
 			if (path.includes(".")) {
 				result = path.split(".")
 			} else {
 				result = [path]
 			}
 		} else if (Array.isArray(path)) {
-			result = [...path] // shallow copy
+			// If path is an array the create a shallow copy     MUST check for array first!!!
+			result = [...path]
+		} else if (typeof path === "object" && Object.keys(path).length === 1) {
+			// If path is just one object { key: value} then create an array with just that one pathElem
+			result = [path]
 		} else {
-			throw new Error(
-				"Cannot parse path. Path must be an Array or String."
-			)
+			throw new Error("Cannot parse path. Path must be an String, Array or Object with .")
 		}
 
 		// Loop over path array elements and parse each of them.
