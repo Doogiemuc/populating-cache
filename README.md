@@ -2,28 +2,60 @@
 
 Efficient JavaScript client side cache. When data is fetched from a backend then it can be cached locally, for example for an App that's running on a mobile device.
 
-[![Build Status](https://travis-ci.com/Doogiemuc/populating-cache.svg?branch=main)](https://travis-ci.com/Doogiemuc/populating-cache)
-[![GitHub license](https://img.shields.io/github/license/Naereen/StrapDown.js.svg)](https://github.com/Naereen/StrapDown.js/blob/master/LICENSE)
-[![GitHub release](https://img.shields.io/github/release/Naereen/StrapDown.js.svg)](https://GitHub.com/Naereen/StrapDown.js/releases/)
+[![Build Status](https://www.travis-ci.com/Doogiemuc/populating-cache.svg?branch=main)](https://www.travis-ci.com/Doogiemuc/populating-cache)
+![NPM](https://img.shields.io/npm/l/populating-cache)
+![npm](https://img.shields.io/npm/v/populating-cache)
 
 ## Features
 
--   Cache data is locally stored in an in-memory cache (which is a plain JavaScript object)
+-   Cache data is locally stored in an in-memory cache (as a plain JavaScript object)
 -   Values in the cache may be anything you can store in a JavaScript variable: Strings, Arrays or JSON Objects.
 -   Every value you put into the cache can have a limited time to life. If that TTL expires, then the value will be refetched from the backend.
--   Populating-Cache is not just a simple key=value store. Values can be stored under any [path](#path-into-the-cache).
--   A value may reference other values in the cache via their path, e.g. `posts[42].createdBy` may reference a `User` entity. These database references (DBref) can automatically be populated when getting values from the cache.
+-   Populating-Cache is not just a simple key=value store. Values can be stored under a [path](#path-into-the-cache).
+-   A object in the cache may reference another object in the cache via its path, e.g. `posts/ID4711.createdBy` may reference a `user/ID42` entity. These database references (DBrefs) can automatically be populated when getting values from the cache.
 -   Populating cache is 100% tested and highly configurable.
+-   No dependencies!
 
 ## Simple usage
 
 Install the npm dependency in your project: `npm install populating-cache`
 
-#### helloWorld.js
+
 
 ```javascript
 import PopulatingCache from 'populating-cache'  // the module exports a class
 
+// Create a new cache intance (More details on "fetchFunc" later.)
+let cache = new PopulatingCache({fetchFunc: (path) => Promise.resolve("valueFetchedFromBackend")})
+
+// PUT values into the cache and store them for later
+cache.put("key1", "Just any value")
+cache.put("key2", {foo: "bar"} )
+// GET a value back from the cache:
+let value = await cache.get("key1")   // value == "Just any value"
+
+// PUT an array into the cache
+cache.put("myArray", [0,1,2,3])
+cache.put("myArray[1]", 111)                  // replace one array element
+cache.put("myArray[]", 4)                     // append to array
+let arrayItem = await cache.get("myArray[2]") // 2
+let fullArray = await cache.get("myArray")    // [0,111,2,3,4]
+
+// PUT an object with an _id into the cache
+let aPost = { _id:4711, title: "Blog post title"}
+cache.put("posts/4711", aPost)
+let cachedPost = await cache.get("posts/4711")  // cachedPost === aPost
+```
+
+## Fetch a value from the backend
+
+When you try to `get` a value that is either not yet in the cache or already expired, then it is fetched from the backend. Populating-cache will
+ 1. call your `fetchFunc(path)` to receive the current value from the backend
+ 2. `put` the returned value into the cache
+ 3. update its TTL
+ 4. and then `get(path)` returns the value as returned by your `fetchFunc()`
+
+```javascript
 /**
  * When a value needs to be fetched from the backend 
  * then populating-cache will call this function that you must provide.
@@ -42,45 +74,18 @@ const cacheConfig = {
   ttl: 60 * 1000    // time to live for elements in the cache
 }
 
-// Create a new cache intance with that config
 let cache = new PopulatingCache(cacheConfig)
-
-// PUT values into the cache and store them for later
-cache.put("key1", "Just any value")
-cache.put("key2", {foo: "bar"} )
-// GET a value back from the cache:
-let value = await cache.get("key1")   // value == "Just any value"
-
-// PUT an array into the cache
-cache.put("myArray", [1,2,3,4] )
-cache.put("myArray[5]", 5) 
-let arrayItem = await cache.get("myArray[5]")  // 5
-let fullArray = await cache.get("myArray")     // [1,2,3,4,5]
-
-// PUT an object with an _id into the cache
-let aPost = { _id:4711, title: "Blog post title"}
-cache.put("posts/4711", aPost)
-let cachedPost = await cache.get("posts/4711")  // cachedPost == aPost
 ```
-
-## Fetch a value from the backend
-
-When you try to `get` a value that is either not yet in the cache or already expired, then it is fetched from the backend. Populating-cache will
- 1. call your `fetchFunc(path)` to receive the current value from the backend
- 2. `put` the returned value into the cache
- 3. update its TTL
- 4. then `get(path)` returns the value as returned by your `fetchFunc()`
-
 
 
 
 
 ## Populating cache is a tree structure
 
-You may simply store values under String keys. But `Populating-Cache` can also store values in a tree structure. The cached elements in this tree are identified by the path from the root of the tree to that element.
+You may simply store values under String keys. But `Populating-Cache` is much more powerfull. It can also store values in a tree structure. The cached elements in this tree are identified by the path from the root of the tree to the element.
 Values in the cache (normally) sit at the leaves of this tree.
 
-Example: Cache the tags of post with `_id="af3d-e3ff"`. If a post with that `_id` does not yet exist, then it will automatically be created in the cache.
+Example: Cache the tags of a post with `_id="af3d-e3ff"`. If a post with that `_id` does not yet exist, then it will automatically be created in the cache.
 
 ```javascript
 cache.put(["post/af3d-e3ff", "tags"], ["tag1", "tag2"])
@@ -101,7 +106,7 @@ A `path` defines where a value will be stored in the cache. It is an _array of p
 | ["abc", "def", ghi"] | abc.def.ghi | deep path into cache
 | ["myArray[3]"] | "myArray[3]" |  the n-th element of an array
 | [{object: id}] | "object/id" | the object element of the array that has that `_id`
-| ["abc", {foo: "ID-4711}, "bar"] | abc.foo/ID-4711.bar | all type elements can appear in one path
+| ["abc", {foo: "ID-4711}, "bar"] | abc.foo/ID-4711.bar | all types of elements can appear in one path
 
 > You may pass the shortcut form to PUT and GET. Populating-cache will always call your fetch function with the normalized form.
 
@@ -198,6 +203,27 @@ When a DBref is resolved, then of course the TTL of the referenced target entity
 Population does not change the $refPath property nor the referenced element in the cache. Only the value returned by `get(path)` will contain the resolved child elements.
 </div>
 
+
+## Subscribe to changes
+
+You can subscribe to changes in the cache. Your listener will be notified, when an element is PUT into the cache.
+
+```javascript
+const cache = new PopulatingChache({fetchFunc: fetchFunc})
+const onPutListern = (path, value) => console.log(value + "was PUT into cache at path "+path)
+cache.subscribe("foo", onPutListener)
+cache.put("foo.some.path", "dummyValue")
+// onPutListener("foo.some.path", "dummyValue") has now been called.
+```
+
+By default listeners are called when a value is put at or below their path. So by default its actually a path prefix.
+You can listen exextly to changes of on element by passing a third argument (true) to the subcribe function: `cache.subsribe("some.path", exactListener, true)` exactListener will only be called, when exactly this element at this path changes.
+
+When you want to be notified about *all* changes in the cache, then you can register a listener at root level: `cache.subscribe("", rootListener)`
+
+
+
+
 # Advanced Usage
 
 ### Merge properties into existing values
@@ -255,7 +281,13 @@ put(["posts/4711", "comments/42"], {baz:"boo"}, {merge:true})
 
 Object IDs can be numeric or alphanumeric UUIDs. The name of the `_id` property can be configured.
 
-# Praise
+# TESTs
+
+`Populating-cache` is heavily tested. Have a look at the [JEST test cases](./test/jest.test.js). There you can also learn a lot about how to use populating-cache.
+
+You can run all tests easily: `npm run test`
+
+# Praise & Kudos
 
 Thanks to the creators of [node-cache](https://github.com/node-cache/node-cache/blob/master/_src/lib/node_cache.coffee) for coffeescript inspiration.
 

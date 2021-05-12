@@ -19,6 +19,9 @@ class PopulatingCache {
 		this.cacheData = {}
 		this.cacheMetadata = {}
 
+		// Listeners that will be notified on changes
+		this.listeners = []
+
 		// CONSTANTS
 		// always call backend for fresh value
 		this.FORCE_BACKEND_CALL = 1
@@ -71,6 +74,7 @@ class PopulatingCache {
 						ttl: Date.now() + opts.ttl,
 						type: typeof value,
 					}
+					this.firePutEvent(path, value, parsedPath)
 				}
 			}
 			// If path[i] was in the form "array[]", then append value to that array
@@ -91,6 +95,7 @@ class PopulatingCache {
 						ttl: Date.now() + opts.ttl,
 						type: typeof value,
 					})
+					this.firePutEvent(path, value, parsedPath)
 				}
 			}
 			// If path[i] is an string that defines an array element "key[index]" then step into it.
@@ -111,13 +116,14 @@ class PopulatingCache {
 						ttl: Date.now() + opts.ttl,
 						type: typeof value,
 					}
+					this.firePutEvent(path, value, parsedPath)
 				}
 			}
 			// If path[i] is "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
 			else if (key && index === undefined && id) {
 				const cacheArray = cacheElem[key] || (cacheElem[key] = []) // create array in cache if necessary
 				if (!metadataElem[key]) metadataElem[key] = []
-				index = cacheArray.findIndex((el) => el[opts.idAttr] == id)
+				index = cacheArray.findIndex((el) => el[opts.idAttr] === id)   // type of ID must also match!
 				// If "key"-array does not have an element with that _id, then add a new element to the array.
 				if (index === -1) {
 					cacheArray.push({ [opts.idAttr]: id })
@@ -151,6 +157,7 @@ class PopulatingCache {
 						ttl: Date.now() + opts.ttl,
 						type: typeof value,
 					}
+					this.firePutEvent(path, value, parsedPath)
 				}
 			} else {
 				throw Error(`Invalid path element ${i}: ${JSON.stringify(parsedPath[i])}`)
@@ -315,7 +322,7 @@ class PopulatingCache {
 	 * 
 	 * @param {Array} path path to value in cache
 	 * @param {Object} options optionally override configuration options  (callBackend is ignored in this method.)
-	 * @param {Boolean} throwWhenExpired should the method throw when path poitns to an expired element.
+	 * @param {Boolean} throwWhenExpired should the method throw when path points to an expired element.
 	 *   This way the caller can distinguish between "not in the cache at all" or "expired value at path".
 	 * @returns {*} the value from the cache if there is one. (getSync() does not return a Promise, but the value itself.)
 	 * @throws Error when an element along path is expired and throwWhenExpired = true. Otherwiese null is returned for expired values.
@@ -446,6 +453,70 @@ class PopulatingCache {
 	}
 
 	/**
+	 * Subscribe to changes at a given path (or below a path prefix)
+	 * 
+	 * The listner's onPut(path, value) method will be called, when a value is PUT into the cache.
+	 * onDelete(path, deletedValue) will be called, when a value is deleted.
+	 * By default listeners are also called when a value is put below the path. 
+	 * This can be changed by passing exact = true. Then the listener is only notified, when the value at exactly this path is changed.
+	 * 
+	 * @param {Any} path path prefix where we listen to changes. If undefined, then listener will be notified for every change of the cache.
+	 * @param {Function} onPutFunc callback function that will be notified when a value is put into the cache: onPutFunc(path, value)
+	 * @param {Boolean} exact Notify listener only when the value at exactly this path is changed (default=false)
+	 * @throws when path is invalid
+	 */
+	subscribe(path, onPutFunc, exact = false) {
+		let parsedPath
+		if (path === undefined || path === "" || path === []) {
+			// global listener
+			parsedPath = []
+		} else {
+			try {
+				parsedPath = this.parsePath(path)
+			} catch(err) {
+				throw new Error("Cannot subscribe. Path is invalid! " + err)
+			}
+		}			
+		let listener = {
+			listenerId: this.listeners.length,
+			path: parsedPath,
+			onPut: onPutFunc,
+			exact: exact
+		}
+		this.listeners.push(listener)
+		return listener
+	}
+
+	unsubscribe(listener) {
+		let idx = this.listeners.findIndex(el => el.listenerId === listener.listenerId)
+		if (idx >= 0) this.listeners.splice(idx, 1)
+	}
+
+	/**
+	 * Notify matching listeners that a value has been put into the cache.
+	 * 
+	 * Listeners will be notified with the full path as passed to PUT. A listener might be
+	 * subscribed to a higher level node in the tree, ie. to a path prefix.
+	 * 
+	 * @param {Any} path the path that has changed
+	 * @param {Any} value value that has been put into the cache under path
+	 * @param {Array} parsedPath internal normalized path array (will be calculated from path when not given)
+	 */
+	firePutEvent(path, value, parsedPath) {
+		if (!parsedPath) parsedPath = this.parsePath(path)
+		this.listeners.forEach(l => {
+			let match = l.exact === false || parsedPath.length === l.path.length
+			// l.path.length can be 0 for global listener!
+			for (let i = 0; i < l.path.length && match; i++) {
+				if (l.path[i].key !== parsedPath[i].key) match = false
+				if (l.path[i].id && l.path[i].id !== parsedPath[i].id) match = false
+				if (l.path[i].index && l.path[i].index !== parsedPath[i].index) match = false
+			}
+			if (match) l.onPut(path, value)
+		})
+	}
+
+	/**
 	 * Delete an element from the cache. It's value will be set to undefined.
 	 * If path points to an array element, then that array element will be set to 
 	 * undefined, so that the length of the array does not change.
@@ -459,6 +530,7 @@ class PopulatingCache {
 	 * Check if a path points to a defined and not yet expired value in the cache.
 	 * If path points to an `undefined` value, then isInCache will return false.
 	 * This method will not change the content of the cache or metadata and will not call the backend at all.
+	 * (Use `getSync(path)` to fetch the value at a path.)
 	 * 
 	 * @param {Array} path path to an element in the cache
 	 * @param {Boolean} populate wether to populate DBrefs along path
@@ -545,8 +617,16 @@ class PopulatingCache {
 	 * <b>Internally</b> populating-cache uses these normalized pathes.
 	 * See README.md for a detailed description about pathes in populating-cache.
 	 *
+	 * <h3>Elements of normalized path arrray</h3>
+	 * {
+	 *   "key": the string key of the path,
+	 *   "id":  the alphanumerical ID for path elements like "posts/4711",
+	 *   "index": numerical array index, eg. from "array[42]"
+	 *   "appendArray": boolean, only used for PUT, e.g. put("posts[]", {title: "new post"})
+	 * }
+	 * 
 	 * @param {String|Array} path plain string or array of path elements
-	 * @returns {Array} Array of parsed objects { key, id, index }. `id` or `index` may be undefind in each path element.
+	 * @returns {Array} Array of parsed objects { key, id, index, appendArray }. `id` or `index` may be undefind in each path element.
 	 * @throws an Error when path or a path element is invalid
 	 */
 	parsePath(path) {
@@ -563,10 +643,10 @@ class PopulatingCache {
 			// If path is an array the create a shallow copy     MUST check for array first!!!
 			result = [...path]
 		} else if (typeof path === "object" && Object.keys(path).length === 1) {
-			// If path is just one object { key: value} then create an array with just that one pathElem
+			// If path is an object in the form { key: value } then create an array with just that one pathElem
 			result = [path]
 		} else {
-			throw new Error("Cannot parse path. Path must be an String, Array or Object with .")
+			throw new Error("Cannot parse path. Path must be a string, an array or a key-value object.")
 		}
 
 		// Loop over path array elements and parse each of them.
@@ -590,7 +670,7 @@ class PopulatingCache {
 					result[i].id = match.groups.id 
 				}
 				if (match.groups.index) result[i].index = parseInt(match.groups.index, 10)
-				if (match.groups.appendArray === '[]') result[i].appendArray = true
+				if (match.groups.appendArray === '[]') result[i].appendArray = true   // only used for PUT
 			} else if (
 				typeof pathElem === "object" &&
 				Object.keys(pathElem).length === 1

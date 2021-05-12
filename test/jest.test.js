@@ -219,7 +219,7 @@ test("Check if value is already in cache", async () => {
 	expect(fetchFunc.mock.calls.length).toBe(0)
 })
 
-test("GEt a value synchronously", async () => {
+test("Get a value synchronously", async () => {
 	// GIVEN a value in the cache
 	const path = ["parentKey", "childKey"]
 	const value = "bar"
@@ -378,6 +378,9 @@ test.each([
 	})
 })
 
+/**
+ * unit test for parsePath() function
+ */
 test.each([
 	["abc",      [{key: "abc"}]],
 	["$adfsf",   [{key: "$adfsf"}]],
@@ -395,3 +398,159 @@ test.each([
 	expect(actual).toStrictEqual(expectedResult)
 	expect(fetchFunc.mock.calls.length).toBe(0)
 })
+
+/**
+ * Test listeners and change subscriptions
+ */
+test.each([
+	// listenerPath, path, vaue, should listener be notified in this case
+	["abc", "abc", "dummyValue", true],
+	["ddd", "abc", "dummyValue", false],
+	["comments", "comments/4711", {_id: 4711, text: "dummy comment"}, true],
+	["comments/123", "comments/4711", {_id: 4711, text: "dummy comment"}, false],
+	["myArray", "myArray[]", "append Array value", true],	
+])("Test subscribe to PUT at path %j", (listenerPath, path, value, shouldBeNotified) => {
+	const fetchFunc = jest.fn(() => Promise.reject("should not be called in subsriptions"))
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
+	//GIVEN a subscribed listener
+	//eslint-disable-next-line no-unused-vars
+	const onPut = jest.fn((path, value) => { /* value has been cached under path */ })
+	cache.subscribe(listenerPath, onPut)
+	
+	// WHEN putting a value into the cache
+	cache.put(path, value)
+	
+	// THEN listener should have been notified (if listener path matches)
+	if (shouldBeNotified) {
+		expect(onPut.mock.calls.length).toBe(1)
+		expect(onPut.mock.calls[0][0]).toBe(path)
+		expect(onPut.mock.calls[0][1]).toBe(value)
+	} else {
+		expect(onPut.mock.calls.length).toBe(0)
+	}
+})
+
+test("Global listener receives all changes", () => {
+	// GIVEN a cache
+	const fetchFunc = jest.fn(() => Promise.reject("should not be called in test for global listener"))
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
+	
+	// AND a global listener
+	//eslint-disable-next-line no-unused-vars
+	const onPutGlobal = jest.fn((path, value) => { /* value has been cached under path */ })
+	cache.subscribe("", onPutGlobal)
+
+	// WHEN putting a values into the cache
+	cache.put("one.two", "dummyValue")
+	cache.put("three.four", "dummyValue2")
+	
+	// THEN global listener should have been notified for each PUT event
+	expect(onPutGlobal.mock.calls.length).toBe(2)
+	expect(onPutGlobal.mock.calls[0][0]).toBe("one.two")
+	expect(onPutGlobal.mock.calls[0][1]).toBe("dummyValue")
+	expect(onPutGlobal.mock.calls[1][0]).toBe("three.four")
+	expect(onPutGlobal.mock.calls[1][1]).toBe("dummyValue2")
+})
+
+test("Subscription with path prefix", () => {
+	const fetchFunc = jest.fn(() => Promise.reject("should not be called in test for subscription with path prefix"))
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
+	
+	// GIVEN a cache with some objects in it
+	cache.put("one.two.three", "bar")
+	
+	// AND some listeners with different pathes
+	//eslint-disable-next-line no-unused-vars
+	const onPutTwo = jest.fn((path, value) => { /* value has been cached under path */ })
+	cache.subscribe("one.two", onPutTwo)
+
+	//eslint-disable-next-line no-unused-vars
+	const onPutThree = jest.fn((path, value) => { /* value has been cached under path */ })
+	cache.subscribe("one.two.three", onPutThree)
+
+	// WHEN putting a new creator name into the cache
+	cache.put("one.two.another", "dummyValue")
+	
+	// THEN listener on level two should have been called
+	expect(onPutTwo.mock.calls.length).toBe(1)
+	expect(onPutTwo.mock.calls[0][0]).toBe("one.two.another")
+	expect(onPutTwo.mock.calls[0][1]).toBe("dummyValue")
+  
+	// AND listener on level three should not have been called
+	expect(onPutThree.mock.calls.length).toBe(0)
+})
+
+test("Subscription with exact path", () => {
+	const fetchFunc = jest.fn(() => Promise.reject("should not be called in test for subscription with exact path"))
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
+	
+	// GIVEN a cache 
+	cache.put("one.two.three", "bar")
+	
+	// AND a listeners with an exact path
+	//eslint-disable-next-line no-unused-vars
+	const onPutExact = jest.fn((path, value) => { /* value has been cached under path */ })
+	cache.subscribe("one.two", onPutExact, true)
+
+	// WHEN putting a value BELOW the listeners exact path
+	cache.put("one.two.three", "valueAtLevelThree")
+	// THEN listener on level two should NOT have been called
+	expect(onPutExact.mock.calls.length).toBe(0)
+	
+	// WHEN putting a value exactly at the listeners path
+	cache.put("one.two", "valueAtLevelTwo")
+	// THEN listener should have been called
+	expect(onPutExact.mock.calls.length).toBe(1)
+	expect(onPutExact.mock.calls[0][0]).toBe("one.two")
+	expect(onPutExact.mock.calls[0][1]).toBe("valueAtLevelTwo")
+})
+
+test("More complex subscriptions", () => {
+	const fetchFunc = jest.fn(() => Promise.reject("should not be called in test for complex subscriptions"))
+	const cache = new PopulatingChache({fetchFunc: fetchFunc})
+	
+	// GIVEN a cache with some objects in it
+	cache.put("foo", "bar")
+	cache.put("posts[]", {_id: 101, text: "Just a post"})
+	cache.put("posts[]", {_id: 102, text: "A second post"})
+	let creatorPath = "posts/101.creator"
+	cache.put(creatorPath, "Max")
+	
+	// AND some listeners with different pathes
+	//eslint-disable-next-line no-unused-vars
+	const onPutPost = jest.fn((path, value) => { /* value has been cached under path */ })
+	cache.subscribe("posts", onPutPost)
+	//eslint-disable-next-line no-unused-vars
+	const onPutCreator = jest.fn((path, value) => { /* value has been cached under path */ })
+	cache.subscribe("posts.creator", onPutCreator)
+	//eslint-disable-next-line no-unused-vars
+	const onPutFoo = jest.fn((path, value) => { /* value has been cached under path */ })
+	cache.subscribe("foo", onPutFoo)
+	
+	// WHEN putting a new creator name into the cache
+	cache.put(creatorPath, "Moritz")
+	
+	// THEN listener should have been notified
+	expect(onPutPost.mock.calls.length).toBe(1)
+	expect(onPutPost.mock.calls[0][0]).toBe(creatorPath)
+	expect(onPutPost.mock.calls[0][1]).toBe("Moritz")
+
+	expect(onPutCreator.mock.calls.length).toBe(1)
+	expect(onPutCreator.mock.calls[0][0]).toBe(creatorPath)
+	expect(onPutCreator.mock.calls[0][1]).toBe("Moritz")
+
+	// AND foo listern should not yet have been called
+	expect(onPutFoo.mock.calls.length).toBe(0)
+
+	//WHEN putting a new foo value
+	cache.put("foo", "bazz222")
+
+	//THEN post listeners should not have any additional calls
+	expect(onPutPost.mock.calls.length).toBe(1)  
+	expect(onPutCreator.mock.calls.length).toBe(1)  // unchanged
+	// AND foo listeners should now have been called
+	expect(onPutFoo.mock.calls.length).toBe(1) 
+	expect(onPutFoo.mock.calls[0][0]).toBe("foo")
+	expect(onPutFoo.mock.calls[0][1]).toBe("bazz222")
+})
+
