@@ -12,7 +12,7 @@ class PopulatingCache {
 	/**
 	 * Create a new instance of a PopulatingCache.
 	 * You may create several cache instances, for example for different types of data in your app or with different configuration.
-	 * @param {Object} config configuration parameters that may overwrite the DEFFAULT_CONFIG
+	 * @param {Object} config configuration options that override the [DEFAULT_CONFIG](#default_config), e.g. `{ fetchFunc, ttl: 30000 }`
 	 */
 	constructor(config) {
 		this.config = { ...DEFAULT_CONFIG, ...config }
@@ -43,10 +43,12 @@ class PopulatingCache {
 	 *  - `put("polls/5", poll)`, `put("polls[2]", poll)` or `put("polls[]", poll)` only set the TTL of that one element.
 	 *    The TTL of the collection stays untouched.
 	 *
-	 * @param {Array} path path under which the `value` shall be stored in the cache
+	 * @param {String|Array} path path under which the `value` shall be stored in the cache
 	 * @param {Any} value The value to store in the cache.
-	 * @param {Object} options Override default configuration options, e.g. ttl or merge properties
+	 * @param {Object} options Override default configuration options, e.g. `ttl` or `merge`
 	 * @returns {Object} the cache instance, so that calls to put() can be chained: `myCache.put("foo", "bar").put("foo2", "baz2")`
+	 * @throws {Error} when path is invalid, when a scalar value is put under an id, when the id of value does not match the id in path
+	 *   or when an array element is put into something that is not an array.
 	 */
 	put(path, value, options) {
 		let cacheElem = this.cacheData
@@ -231,6 +233,7 @@ class PopulatingCache {
 	 * @param {Object} opts config options, including fetchFunc
 	 * @returns {Promise} resolves to cacheElem if it is not expired. Otherwise tries to query for value with fetchFunc().
 	 * @rejects When element is expired and opts.callBackend === DO_NOT_CALL_BACKEND
+	 * @private
 	 */
 	async fetchIfExpired(path, cacheElem, metadata, opts) {
 		const expired = metadata ? isExpired(metadata.ttl) : false
@@ -257,6 +260,7 @@ class PopulatingCache {
 	 * @param {Array|String} path path to the value that shall be fetched
 	 * @param {Object} opts config options, including fetchFunc
 	 * @returns {Promise} resolves to the fetched value
+	 * @private
 	 */
 	async fetchAndPut(path, opts) {
 		const parsedPath = this.parsePath(path)
@@ -283,18 +287,18 @@ class PopulatingCache {
 	 * getSync() will not call the backend It can only return values that already are in the cache.
 	 *
 	 * When there is a value in the cache, but it is expired, then there are two possible scenarios:
-	 * 1. Simply return null to the caller. (This is the default)
-	 * 2. Throw an Error. This way the caller can distinguish between not in the cache at all" or "expired value at that path"
+	 * 1. Simply return undefined to the caller. (This is the default)
+	 * 2. Throw an Error. This way the caller can distinguish between "not in the cache at all" or "expired value at that path"
 	 *
 	 * getSync() can do population, but only with values that already are in the cache.
 	 *
-	 * @param {Array} path path to value in cache
-	 * @param {Object} options optionally override configuration options  (callBackend is ignored in this method.)
+	 * @param {String|Array} path path to value in cache
+	 * @param {Object} options optionally override configuration options  (callBackend and fetchCollection are ignored in this method.)
 	 * @param {Boolean} throwWhenExpired should the method throw when path points to an expired element.
 	 *   This way the caller can distinguish between "not in the cache at all" or "expired value at path".
 	 * @returns {*} the value from the cache if there is one. (getSync() does not return a Promise, but the value itself.)
-	 * @throws Error when an element along path is expired and throwWhenExpired = true. Otherwiese null is returned for expired values.
-	 *     Also throws when path is invalid.
+	 * @throws {Error} when an element along path is expired and throwWhenExpired = true.
+	 *   Otherwise undefined is returned for expired values. Also throws when path is invalid.
 	 */
 	getSync(path, options, throwWhenExpired = false) {
 		let cacheElem = this.cacheData
@@ -333,6 +337,7 @@ class PopulatingCache {
 	 * 
 	 * @param {Array|String} path path to value that you want to get from the cache
 	 * @param {Function} fetchFunc async function that will be called to fetch the value
+	 * @returns {Promise} resolves to the fetched value
 	 */
 	async remember(path, fetchFunc) {
 		// The idea for this perfectly fitting method name is from https://yarkovaleksei.github.io/vue2-storage/en/api.html#set
@@ -351,6 +356,7 @@ class PopulatingCache {
 	 * @param {Object|Array} elem an element from the cache that contains DBrefs
 	 * @param {String} refProp the name of the property that is a DBref and that shall be populated
 	 * @param {Object} options configuration options (or will use defaults)
+	 * @returns {Promise} resolves to elem with its DBrefs replaced by the referenced values
 	 */
 	async populate(elem, refProp, options) {
 		let opts = {...this.config, ...options}
@@ -377,15 +383,16 @@ class PopulatingCache {
 	/**
 	 * Subscribe to changes at a given path (or below a path prefix)
 	 * 
-	 * The listner's onPut(path, value) method will be called, when a value is PUT into the cache.
-	 * onDelete(path, deletedValue) will be called, when a value is deleted.
+	 * The listener's onPut(path, value) method will be called, when a value is PUT into the cache.
+	 * When a value is deleted, then onPut(path, undefined) is called.
 	 * By default listeners are also called when a value is put below the path. 
 	 * This can be changed by passing exact = true. Then the listener is only notified, when the value at exactly this path is changed.
 	 * 
 	 * @param {Any} path path prefix where we listen to changes. If undefined, then listener will be notified for every change of the cache.
 	 * @param {Function} onPutFunc callback function that will be notified when a value is put into the cache: onPutFunc(path, value)
 	 * @param {Boolean} exact Notify listener only when the value at exactly this path is changed (default=false)
-	 * @throws when path is invalid
+	 * @returns {Object} the listener. Pass it to `unsubscribe(listener)` to stop listening.
+	 * @throws {Error} when path is invalid
 	 */
 	subscribe(path, onPutFunc, exact = false) {
 		let parsedPath
@@ -409,6 +416,10 @@ class PopulatingCache {
 		return listener
 	}
 
+	/**
+	 * Stop notifying a listener.
+	 * @param {Object} listener the listener as returned by `subscribe()`
+	 */
 	unsubscribe(listener) {
 		let idx = this.listeners.findIndex(el => el.listenerId === listener.listenerId)
 		if (idx >= 0) this.listeners.splice(idx, 1)
@@ -423,6 +434,7 @@ class PopulatingCache {
 	 * @param {Any} path the path that has changed
 	 * @param {Any} value value that has been put into the cache under path
 	 * @param {Array} parsedPath internal normalized path array (will be calculated from path when not given)
+	 * @private
 	 */
 	firePutEvent(path, value, parsedPath) {
 		if (!parsedPath) parsedPath = this.parsePath(path)
@@ -439,10 +451,12 @@ class PopulatingCache {
 	}
 
 	/**
-	 * Delete an element from the cache. It's value will be set to undefined.
-	 * If path points to an array element, then that array element will be set to 
-	 * undefined, so that the length of the array does not change.
-	 * @param {Array} path path to the element that shall be deleted
+	 * Delete an element and its metadata from the cache.
+	 * If path points to an array element, e.g. `"polls/5"` or `"polls[0]"`, then that array element and its entry in `$elems`
+	 * will be set to undefined, so that the length of the array does not change.
+	 * Listeners are notified with `onPut(path, undefined)`.
+	 * @param {String|Array} path path to the element that shall be deleted
+	 * @throws {Error} when path is invalid or ends in "array[]"
 	 */
 	delete(path) {
 		const parsedPath = this.parsePath(path)
@@ -477,9 +491,8 @@ class PopulatingCache {
 	 * This method will not change the content of the cache or metadata and will not call the backend at all.
 	 * (Use `getSync(path)` to fetch the value at a path.)
 	 * 
-	 * @param {Array} path path to an element in the cache
-	 * @param {Boolean} populate wether to populate DBrefs along path
-	 * @return {Boolean} true if there is a value !== undefind at that path and it is not yet expired.
+	 * @param {String|Array} path path to an element in the cache
+	 * @return {Boolean} true if there is a value !== undefined at that path and it is not yet expired.
 	 */
 	isInCache(path) {
 		try {
@@ -493,6 +506,7 @@ class PopulatingCache {
 	/**
 	 * Get (a direct reference!) to all the data in the cache.
 	 * The cacheData is exactly as returned by `fetchFunc(path)`
+	 * @returns {Object} the root of the cached data
 	 */
 	getCacheData() {
 		return this.cacheData
@@ -511,8 +525,8 @@ class PopulatingCache {
 	 * Returns the metadata node as it is stored, i.e. an element without an own entry or `ttl` has none here.
 	 * (`get()` then falls back to the `ttl` of the collection.)
 	 *
-	 * @param {Array} path fetch metadata of a specific element. If null or undefind, then all metadata of the whole cache is returned.
-	 * @returns {Object} metadata of cached value under path, e.g. { ttl: 55235325000, type: "Integer"}
+	 * @param {String|Array} path path to a specific element. If null or undefined, then the metadata of the whole cache is returned.
+	 * @returns {Object} metadata of cached value under path, e.g. `{ ttl: 55235325000, type: "number" }`, or undefined
 	 */
 	getMetadata(path) {
 		if (!path) return this.cacheMetadata
@@ -524,6 +538,7 @@ class PopulatingCache {
 	 * @param {Array} parsedPath normalized path as returned by `parsePath()`
 	 * @param {String} idAttr name of the id attribute
 	 * @returns {Object} metadata node at the end of parsedPath or undefined
+	 * @private
 	 */
 	findMetadata(parsedPath, idAttr) {
 		let cacheElem = this.cacheData
@@ -538,7 +553,7 @@ class PopulatingCache {
 	}
 
 	/**
-	 * Completely empty the cache and delte all values in it. This also clears out all metadata.
+	 * Completely empty the cache and delete all values in it. This also clears out all metadata.
 	 */
 	emptyCache() {
 		this.cacheData = {}
@@ -547,7 +562,11 @@ class PopulatingCache {
 
 	/**
 	 * Recursively walk through the cacheData and delete all expired elements.
-	 * You may call this from time to time to optimize the cache's memory consumption
+	 * You may call this from time to time to optimize the cache's memory consumption.
+	 *
+	 * Expired array elements and their entries in `$elems` are set to undefined, so that arrays keep their length.
+	 * When a collection is expired, then only its elements without a fresh TTL of their own are removed.
+	 * If none of them are left, then the collection is deleted completely.
 	 */
 	deleteExpiredElems() {
 		deleteExpiredElemsRec(this.cacheData, this.cacheMetadata)
@@ -570,7 +589,7 @@ class PopulatingCache {
 	 * 
 	 * @param {String|Array} path plain string or array of path elements
 	 * @returns {Array} Array of parsed objects { key, id, index, appendArray }. `id` or `index` may be undefind in each path element.
-	 * @throws an Error when path or a path element is invalid
+	 * @throws {Error} when path or a path element is invalid
 	 */
 	parsePath(path) {
 		let result = []
@@ -656,8 +675,10 @@ class PopulatingCache {
 	}
 
 	/**
-	 * Convert the given path to a REST URL path.
+	 * Convert the given path to a REST URL path, e.g. `[{posts: 11}, "comments"]` to `"/posts/11/comments"`.
 	 * @param {Array} path a populating-cache path array
+	 * @returns {String} the REST URL path
+	 * @throws {Error} when path is not an array or contains an "array[index]" element
 	 */
 	path2rest(path) {
 		if (!Array.isArray(path)) throw Error("Path must be an array")
@@ -683,24 +704,41 @@ class PopulatingCache {
 /**
  * Name of the metadata property of a collection that holds the metadata of its elements, index by index.
  * Together with `ttl` and `type` this is a reserved name in the metadata tree.
+ * @private
  */
 const ELEMS = "$elems"
 
-/** Two ids are the same, when their string representations are equal. "5" and 5 are the same id. */
+/**
+ * Two ids are the same, when their string representations are equal. "5" and 5 are the same id.
+ * @private
+ */
 const sameId = (a, b) => a !== undefined && a !== null && b !== undefined && b !== null && String(a) === String(b)
 
-/** A TTL is expired, when it is defined and in the past. Values without a TTL never expire. */
+/**
+ * A TTL is expired, when it is defined and in the past. Values without a TTL never expire.
+ * @private
+ */
 const isExpired = (ttl) => ttl !== undefined && ttl < Date.now()
 
+/**
+ * Index of the element with that id in array, or -1
+ * @private
+ */
 const findIndexById = (array, id, idAttr) => array.findIndex(el => el !== undefined && el !== null && sameId(el[idAttr], id))
 
-/** The effective TTL of an array element: its own TTL, else the TTL of its collection */
+/**
+ * The effective TTL of an array element: its own TTL, else the TTL of its collection
+ * @private
+ */
 const effectiveTtl = (collectionMeta, elemMeta) => {
 	if (elemMeta && elemMeta.ttl !== undefined) return elemMeta.ttl
 	return collectionMeta ? collectionMeta.ttl : undefined
 }
 
-/** Merge value into oldValue if opts.merge is set and both are (non array) objects */
+/**
+ * Merge value into oldValue if opts.merge is set and both are (non array) objects
+ * @private
+ */
 const mergeValue = (oldValue, value, opts) => {
 	if (opts.merge && value && typeof value === "object" && !Array.isArray(value) && !Array.isArray(oldValue)) {
 		return { ...oldValue, ...value }
@@ -708,21 +746,30 @@ const mergeValue = (oldValue, value, opts) => {
 	return value
 }
 
-/** Create the metadata for a value. Arrays also get one entry per element in `$elems`. */
+/**
+ * Create the metadata for a value. Arrays also get one entry per element in `$elems`.
+ * @private
+ */
 const createMetadata = (value, opts, ttl) => {
 	const metadata = { ttl, type: typeof value }
 	if (Array.isArray(value)) metadata[ELEMS] = value.map(el => createElemMetadata(el, opts, ttl))
 	return metadata
 }
 
-/** Create the metadata entry for an array element. It also contains the element's id, if it has one. */
+/**
+ * Create the metadata entry for an array element. It also contains the element's id, if it has one.
+ * @private
+ */
 const createElemMetadata = (value, opts, ttl, id) => {
 	const elemId = value && typeof value === "object" && value[opts.idAttr] !== undefined ? value[opts.idAttr] : id
 	const metadata = createMetadata(value, opts, ttl)
 	return elemId === undefined ? metadata : { [opts.idAttr]: elemId, ...metadata }
 }
 
-/** Get the array under key from the cache. Create it if necessary. Throws if there is something else under key. */
+/**
+ * Get the array under key from the cache. Create it if necessary. Throws if there is something else under key.
+ * @private
+ */
 const cachedArray = (cacheParent, key, path) => {
 	if (cacheParent[key] === undefined || cacheParent[key] === null) cacheParent[key] = []
 	if (!Array.isArray(cacheParent[key])) {
@@ -734,6 +781,7 @@ const cachedArray = (cacheParent, key, path) => {
 /**
  * Get the metadata node of a collection under key. Create it as `{ $elems: [] }` (without an own TTL) if necessary.
  * An existing TTL of the collection is kept.
+ * @private
  */
 const collectionMetadata = (metadataParent, key) => {
 	let node = metadataParent[key]
@@ -757,6 +805,7 @@ const collectionMetadata = (metadataParent, key) => {
  *   - ttl: the child's effective TTL. For array elements its own ttl, else the ttl of its collection.
  *   - index: the array index of the child (only for array elements)
  *   - collection: the metadata node of the collection (only for array elements)
+ * @private
  */
 const stepInto = (cacheElem, metadataElem, pathElem, idAttr) => {
 	const { key, id, index } = pathElem
@@ -780,6 +829,7 @@ const stepInto = (cacheElem, metadataElem, pathElem, idAttr) => {
  * An expired array element is set to undefined (the array keeps its length) and so is its entry in `$elems`.
  * When a collection is expired, then only its elements without a fresh TTL of their own are removed.
  * If none of its elements are left, then the collection is deleted completely.
+ * @private
  */
 let deleteExpiredElemsRec = function(elem, metadata) {
 	if (!elem || typeof elem !== "object" || !metadata || typeof metadata !== "object") return
@@ -818,6 +868,7 @@ let deleteExpiredElemsRec = function(elem, metadata) {
 /**
  * Default configuration for a cache. You can overwrite these when creating a new PopulatingCache instance.
  * Each cache instance can have its own configuration.
+ * See [Configuration](#configuration) for a description of all options.
  */
 const DEFAULT_CONFIG = {
 	// ===== options for GET =====
@@ -869,6 +920,7 @@ const DEFAULT_CONFIG = {
  *  - appendArray: two square brackets without a numbe: "[]"
  *  - id: alphanumerical ID, e.g. "034de-3335-ff35" or "ADD3XU"
  *  - idNum: numerical ID, eg  "4325"
+ * @private
  */
 // eslint-disable-next-line max-len
 const pathElemRegEx = /^(?<key>[a-zA-Z_$][0-9a-zA-Z-_$]*)((\[(?<index>\d+)\])|(?<appendArray>\[\])|(\/(?<idNum>[0-9]+))|(\/(?<id>[0-9a-zA-Z_$][0-9a-zA-Z-_$]*)))?$/
