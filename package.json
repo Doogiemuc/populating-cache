@@ -1,6 +1,6 @@
 {
   "name": "populating-cache",
-  "version": "5.7.0",
+  "version": "6.0.0",
   "description": "A lightweight client side cache that can automatically populate DBrefs",
   "license": "MIT",
   "repository": "doogiemuc/populating-cache",

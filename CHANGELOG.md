@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [6.0.0](https://github.com/doogiemuc/populating-cache/compare/v5.7.0...v6.0.0) (2026-11-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* TTL for a collection and for each of its elements
+
+### Features
+
+* TTL for a collection and for each of its elements ([e895786](https://github.com/doogiemuc/populating-cache/commit/e895786370a2e8575776a8a33fa8c031fc4933d9))
+
+
+### Bug Fixes
+
+* path2rest() used the loop index instead of the path element ([a24b414](https://github.com/doogiemuc/populating-cache/commit/a24b41481a170d8f6776ab7f9f69daaf03a2e4a8))
+
 ## [5.7.0](https://github.com/doogiemuc/populating-cache/compare/v5.6.0...v5.7.0) (2021-05-12)
 
 
@@ -103,7 +119,3 @@ All notable changes to this project will be documented in this file. See [standa
 ### [1.0.1](https://github.com/doogiemuc/populating-cache/compare/v0.0.2...v1.0.1) (2020-12-10)
 
 ### 0.0.2 (2020-12-09)
-
-
-
-
