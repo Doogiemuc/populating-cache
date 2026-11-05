@@ -34,8 +34,8 @@ const createBackend = (list = polls()) => jest.fn((path) => {
 	return Promise.reject(new Error("Unexpected backend call " + JSON.stringify(path)))
 })
 
-describe("Bugs in 5.7.0", () => {
-	test("bug 1: GET of an uncached id calls the backend instead of returning the parent", async () => {
+describe("GET of collection elements", () => {
+	test("GET of an uncached id calls the backend", async () => {
 		const fetchFunc = createBackend()
 		const cache = new PopulatingCache({ fetchFunc, ttl: TTL })
 		cache.put("polls", polls())
@@ -47,7 +47,7 @@ describe("Bugs in 5.7.0", () => {
 		expect(res).toEqual({ _id: 99, notFound: true })
 	})
 
-	test("bug 1: GET of an id under a key that is not cached at all calls the backend", async () => {
+	test("GET of an id under a key that is not cached at all calls the backend", async () => {
 		const fetchFunc = createBackend()
 		const cache = new PopulatingCache({ fetchFunc, ttl: TTL })
 
@@ -58,7 +58,7 @@ describe("Bugs in 5.7.0", () => {
 		expect(res.title).toBe("Poll five")
 	})
 
-	test("bug 2: an element expires together with its collection", async () => {
+	test("an element without an own TTL expires together with its collection", async () => {
 		const fetchFunc = createBackend()
 		const cache = new PopulatingCache({ fetchFunc, ttl: TTL })
 		cache.put("polls", polls())
@@ -71,7 +71,7 @@ describe("Bugs in 5.7.0", () => {
 		expect(res.fresh).toBe(true)
 	})
 
-	test("bug 3: putting an element keeps the TTL of its collection (passes in 5.7.0 only by accident)", async () => {
+	test("putting an element keeps the TTL of its collection", async () => {
 		const fetchFunc = createBackend()
 		const cache = new PopulatingCache({ fetchFunc, ttl: TTL })
 		cache.put("polls", polls())
@@ -156,7 +156,7 @@ describe("A collection has its own TTL and one per element", () => {
 		expect(cache.isInCache("polls/5")).toBe(false)
 	})
 
-	test("a collection that was only built from single elements never expires (as in 5.7.0)", async () => {
+	test("a collection that was only built from single elements has no TTL of its own", async () => {
 		const fetchFunc = createBackend()
 		const cache = new PopulatingCache({ fetchFunc, ttl: TTL })
 		cache.put("polls/5", { _id: 5, title: "single" })
