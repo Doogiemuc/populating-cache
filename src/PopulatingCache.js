@@ -663,7 +663,7 @@ class PopulatingCache {
 		if (!Array.isArray(path)) throw Error("Path must be an array")
 		let restPath = ""
 		for (let i = 0; i < path.length; i++) {
-			const el = [i]
+			const el = path[i]
 			if (typeof el === "string") {
 				if (el.includes("[")) throw new Error(`Cannot convert path with array[index] elements to REST URL: ${el}`)
 				restPath += `/${el}`

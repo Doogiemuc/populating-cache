@@ -554,3 +554,17 @@ test("More complex subscriptions", () => {
 	expect(onPutFoo.mock.calls[0][1]).toBe("bazz222")
 })
 
+
+test.each([
+	[["posts"], "/posts"],
+	[[{ posts: 11 }, "comments"], "/posts/11/comments"],
+	[["posts/11", { comments: "ab3f" }], "/posts/11/comments/ab3f"],
+])("path2rest(%j) = %j", (path, restPath) => {
+	const cache = new PopulatingChache()
+	expect(cache.path2rest(path)).toBe(restPath)
+})
+
+test("path2rest throws for array[index] elements", () => {
+	const cache = new PopulatingChache()
+	expect(() => cache.path2rest(["posts[0]"])).toThrow("array[index]")
+})
