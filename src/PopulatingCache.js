@@ -36,7 +36,12 @@ class PopulatingCache {
 	/**
 	 * Cache `value` under the given `path` in this cache. The value may then be retrieved back with a call to `get(path)`.
 	 * All intermediate objects along the path will be created in the cache if necessary.
-	 * Then `value` is stored as the leaf at the end of path with the given `ttl` or the configured `defaultTTLms`.
+	 * Then `value` is stored as the leaf at the end of path with the given `ttl` or the configured default `ttl`.
+	 *
+	 * Collections (arrays) have a TTL of their own and one TTL per element:
+	 *  - `put("polls", array)` sets the TTL of the collection and of each of its elements.
+	 *  - `put("polls/5", poll)`, `put("polls[2]", poll)` or `put("polls[]", poll)` only set the TTL of that one element.
+	 *    The TTL of the collection stays untouched.
 	 *
 	 * @param {Array} path path under which the `value` shall be stored in the cache
 	 * @param {Any} value The value to store in the cache.
@@ -44,137 +49,112 @@ class PopulatingCache {
 	 * @returns {Object} the cache instance, so that calls to put() can be chained: `myCache.put("foo", "bar").put("foo2", "baz2")`
 	 */
 	put(path, value, options) {
-		let cacheElem = this.cacheData || {}
-		let metadataElem = this.cacheMetadata || {}
-		let opts = { ...this.config, ...options }
+		let cacheElem = this.cacheData
+		let metadataElem = this.cacheMetadata
+		const opts = { ...this.config, ...options }
 		const parsedPath = this.parsePath(path)
+		const ttl = Date.now() + opts.ttl
 
 		// Walk along path and insert intermediate objects as necessary
 		for (let i = 0; i < parsedPath.length; i++) {
-			const key = parsedPath[i].key
-			const id = parsedPath[i].id
-			const appendArray = parsedPath[i].appendArray
-			let index = parsedPath[i].index
+			const { key, id, index, appendArray } = parsedPath[i]
+			const isLast = i === parsedPath.length - 1
 
 			// If path[i] is a plain string key
 			if (key && index === undefined && id === undefined && !appendArray) {
-				if (i < parsedPath.length - 1) {
+				if (!isLast) {
 					// then step into that key in the cache. Create object if necessary.
-					cacheElem    = cacheElem[key]    || (cacheElem[key] = {}) 
+					cacheElem    = cacheElem[key]    || (cacheElem[key] = {})
 					metadataElem = metadataElem[key] || (metadataElem[key] = {})
 				} else {
-					// If this is the last element in path, then store value in the cache
-					// If value is an object and merge === true, then only merge properties from value into current cacheElem[key]
-					if (opts.merge && typeof value === "object") {
-						cacheElem[key] = {...cacheElem[key], ...value}
-					} else {
-						cacheElem[key] = value
-					}
-					metadataElem[key] = {
-						ttl: Date.now() + opts.ttl,
-						type: typeof value,
-					}
-					this.firePutEvent(path, value, parsedPath)
+					// If this is the last element in path, then store value in the cache.
+					// If value is an array, then its metadata also has an entry for each element.
+					cacheElem[key] = mergeValue(cacheElem[key], value, opts)
+					metadataElem[key] = createMetadata(value, opts, ttl)
 				}
 			}
 			// If path[i] was in the form "array[]", then append value to that array
 			else if (key && index === undefined && id === undefined && appendArray) {
-				if (!cacheElem[key]) cacheElem[key] = [] // create array in cache if necessary
-				if (!metadataElem[key]) metadataElem[key] = []
-				if (i < parsedPath.length - 1) {
+				if (!isLast) {
 					throw new Error('"appendArray[]" is only allowed as the last element of path in PUT()')
-					//TODO: Can we allow this in intermediate elements in PUT? 
-					//  => This is complex! What type of element should I append to the array here? a String, 
+					//TODO: Can we allow this in intermediate elements in PUT?
+					//  => This is complex! What type of element should I append to the array here? a String,
 					//     an object or another array? This depends on the next elem in path
-				} else {
-					// If this is the last element in path, then append value to end of this array
-					if (!Array.isArray(cacheElem[key]))
-						throw new Error("Cannot append to array. Last element in path is not an array.")
-					cacheElem[key].push(value)
-					metadataElem[key].push({
-						ttl: Date.now() + opts.ttl,
-						type: typeof value,
-					})
-					this.firePutEvent(path, value, parsedPath)
 				}
+				const array = cachedArray(cacheElem, key, path)
+				array.push(value)
+				collectionMetadata(metadataElem, key).$elems[array.length - 1] = createElemMetadata(value, opts, ttl)
 			}
 			// If path[i] is an string that defines an array element "key[index]" then step into it.
 			else if (key && index >= 0 && id === undefined) {
-				if (!cacheElem[key]) cacheElem[key] = [] // create array in cache if necessary
-				if (!metadataElem[key]) metadataElem[key] = []
-				if (i < parsedPath.length - 1) {
-					cacheElem    = cacheElem[key][index]    || (cacheElem[key][index] = {})
-					metadataElem = metadataElem[key][index] || (metadataElem[key][index] = {})
+				const array = cachedArray(cacheElem, key, path)
+				const collection = collectionMetadata(metadataElem, key)
+				if (!isLast) {
+					cacheElem    = array[index]              || (array[index] = {})
+					metadataElem = collection.$elems[index]  || (collection.$elems[index] = {})
 				} else {
-					// if this is the last element in the  path, then set the value as this array element
-					if (opts.merge && typeof value === "object") {
-						cacheElem[key][index] = {...cacheElem[key][index], ...value}
-					} else {
-						cacheElem[key][index] = value 
-					}
-					metadataElem[key][index] = {
-						ttl: Date.now() + opts.ttl,
-						type: typeof value,
-					}
-					this.firePutEvent(path, value, parsedPath)
+					// if this is the last element in the path, then set the value as this array element
+					array[index] = mergeValue(array[index], value, opts)
+					collection.$elems[index] = createElemMetadata(value, opts, ttl)
 				}
 			}
 			// If path[i] is "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
-			else if (key && index === undefined && id) {
-				const cacheArray = cacheElem[key] || (cacheElem[key] = []) // create array in cache if necessary
-				if (!metadataElem[key]) metadataElem[key] = []
-				index = cacheArray.findIndex((el) => el[opts.idAttr] === id)   // type of ID must also match!
-				// If "key"-array does not have an element with that _id, then add a new element to the array.
-				if (index === -1) {
-					cacheArray.push({ [opts.idAttr]: id })
-					index = cacheArray.length - 1
-				}
-				if (i < parsedPath.length - 1) {
-					cacheElem    = cacheElem[key][index]
-					metadataElem = metadataElem[key][index] || (metadataElem[key][index] = {[opts.idAttr]: id})
-				} else {
-					// If value is not an object then wrap it in an object and add id, so that we can receive it back under that path.
-					if (typeof value !== "object") 
+			else if (key && index === undefined && id !== undefined && !appendArray) {
+				if (isLast) {
+					// Validate value before we change anything in the cache.
+					if (typeof value !== "object")
 						throw new Error("You cannot PUT a scalar value under an ID. Must be object with "+opts.idAttr)
-					// If value has a different (or missing) ID than what the last element of path declares, then we must correct value here
-					// to satisfy the always valid invariant `cache.put(path, value)  => cache.get(path) = value`
-					if (value && value[opts.idAttr] && value[opts.idAttr] != id) {
+					// If value has a different ID than what the last element of path declares, then we cannot store it here.
+					// This would break the always valid invariant `cache.put(path, value)  => cache.get(path) = value`
+					if (value && value[opts.idAttr] !== undefined && !sameId(value[opts.idAttr], id)) {
 						throw new Error(`ID mismatch! You tried to PUT a value under path ${JSON.stringify(path)}.
 						  But your value had value.${opts.idAttr}=${value[opts.idAttr]}.`)
 					}
+				}
+				const array = cachedArray(cacheElem, key, path)
+				const collection = collectionMetadata(metadataElem, key)
+				let idx = findIndexById(array, id, opts.idAttr)
+				// If "key"-array does not have an element with that _id, then add a new element to the array.
+				if (idx === -1) {
+					array.push({ [opts.idAttr]: id })
+					idx = array.length - 1
+				}
+				if (!isLast) {
+					cacheElem    = array[idx]
+					metadataElem = collection.$elems[idx] || (collection.$elems[idx] = { [opts.idAttr]: array[idx][opts.idAttr] })
+				} else {
 					if (value && value[opts.idAttr] === undefined) {
 						console.warn(`You tried to PUT an object value without an ${opts.idAttr} `+
 							`at path ${JSON.stringify(path)}. I added ${opts.idAttr}=${id}`)
 						value[opts.idAttr] = id
 					}
-					if (opts.merge && typeof value === "object") {
-						cacheElem[key][index] = {...cacheElem[key][index], ...value}
-					} else {
-						cacheElem[key][index] = value 
-					}
-					metadataElem[key][index] = {
-						[opts.idAttr]: id,
-						ttl: Date.now() + opts.ttl,
-						type: typeof value,
-					}
-					this.firePutEvent(path, value, parsedPath)
+					array[idx] = mergeValue(array[idx], value, opts)
+					collection.$elems[idx] = createElemMetadata(value, opts, ttl, id)
 				}
 			} else {
 				throw Error(`Invalid path element ${i}: ${JSON.stringify(parsedPath[i])}`)
 			}
 		}
+		this.firePutEvent(path, value, parsedPath)
 		return this
 	}
 
 	/**
-	 * Fetch a value from the cache. If the value isn't in the cache or if it is expired, 
+	 * Fetch a value from the cache. If the value isn't in the cache or if it is expired,
 	 * then the backend will be queried for the value under `path`.
 	 *
 	 * When the backend is called, then the returned value will again be stored in the cache and its TTL will be updated.
 	 *
-	 * Get does not change the content of the cache at all. Specifically it does not remove expired elements. 
+	 * The most specific TTL wins: An array element expires with its own TTL if it has one (e.g. from `put("polls/5", poll)`),
+	 * otherwise with the TTL of its collection (e.g. from `put("polls", array)`). The collection itself only expires with its own TTL.
+	 *
+	 * With the option `fetchCollection: true`, a missing or expired element `"polls/5"` is not fetched on its own.
+	 * Instead `fetchFunc` is called for its whole collection `["polls"]`. The returned array is put into the cache
+	 * and the element with the matching id is returned, or `undefined` when the new list does not contain it.
+	 *
+	 * Get does not change the content of the cache at all. Specifically it does not remove expired elements.
 	 * You can call `deleteExpiredElems()` manually to cleanup the cache.
-	 * 
+	 *
 	 * @param {String|Array} path array that forms the path to the value that shall be fetched.
 	 *     Each array element can be one of three formats:
 	 *       - a plain "attributeName" for object properties in the cache.
@@ -182,89 +162,57 @@ class PopulatingCache {
 	 *       - "array[index]" for array elements. Index must be a positive.
 	 *     For example: [{posts:5}, {comments:42}] is the comment with id 42 of the post with id 5
 	 *     For a REST backend this can be translated to the REST resource at  /posts/5/comments/42
-	 * @param {Object} options Override default options, e.g. force call to backend or do not populate.
+	 * @param {Object} options Override default options, e.g. force call to backend, do not populate or fetchCollection.
 	 * @returns (A Promise that resolves to) the fetched value. Either directly from the cache or from the backend.
 	 * @rejects When the value couldn't be fetched or there was an API error in your backend.
 	 */
 	async get(path, options) {
-		let cacheElem = this.cacheData || {}
-		let metadataElem = this.cacheMetadata || {}
-		let opts = {...this.config, ...options}
+		let cacheElem = this.cacheData
+		let metadataElem = this.cacheMetadata
+		let ttl = undefined     // effective TTL of cacheElem
+		const opts = {...this.config, ...options}
 		if (typeof opts.fetchFunc !== "function") return Promise.reject("Need fetchFunc to fetch value at path="+JSON.stringify(path))
 		const parsedPath = this.parsePath(path)
+		const fullPath = this.getSubPath(parsedPath)
 
 		// Walk along parsedPath try to find the value and the end of it.
 		for (let i = 0; i < parsedPath.length; i++) {
-			const key = parsedPath[i].key
-			const id = parsedPath[i].id
-			let   index = parsedPath[i].index
+			const step = stepInto(cacheElem, metadataElem, parsedPath[i], opts.idAttr)
+			cacheElem = step.value
+			metadataElem = step.metadata
+			ttl = step.ttl
+			if (i === parsedPath.length - 1) break   // The last element is checked below.
 
-			// If path[i] is a plain string, then step into that key.
-			if (key && index === undefined && id === undefined) {
-				cacheElem = cacheElem[key]
-				// If there is no cacheElem under that key, then immideately call the backend for the full path.
-				if (!cacheElem) break 
-				// If cacheElem is a DBref, then (try to) populate it.
-				if (opts.populate && cacheElem[opts.referencedPathAttr]) {
-					cacheElem = await this.get(
-						cacheElem[opts.referencedPathAttr], // path to referenced element in the cache
-						opts
-					)
-				}
-				// If this cacheElem is expired then fetch it from the backend.
-				// This will PUT the returned value back into the cache with an updated TTL.
-				if (metadataElem && metadataElem[key]) {
-					if (metadataElem[key].ttl < Date.now()) {
-						cacheElem = await this.fetchIfExpired(this.getSubPath(parsedPath,0,i+1), undefined, undefined, opts)
-						//We cannot simply call this.fetchFunc(path, i), because we need the logic in fetchIfExpired, 
-						//e.g. reject when opts.DO_NOT_CALL_BACKEND and PUT the received value back into the cahge
-					}
-					metadataElem = metadataElem[key]
-				}
+			const subPath = this.getSubPath(parsedPath, 0, i + 1)
+			const viaCollection = opts.fetchCollection && parsedPath[i].id !== undefined
+			// If there is no intermediate element, then immediately call the backend for the full path.
+			// (Unless the missing element can be fetched with its collection.)
+			if (!cacheElem && !viaCollection) return this.fetchIfExpired(fullPath, undefined, undefined, opts)
+
+			// If this intermediate element is missing or expired, then fetch it from the backend.
+			// This will PUT the returned value back into the cache with an updated TTL.
+			if (!cacheElem || isExpired(ttl)) {
+				cacheElem = await this.fetchIfExpired(subPath, undefined, { ttl }, opts)
+				if (!cacheElem) return undefined   // not in the backend either (or DO_NOT_CALL_BACKEND)
+				metadataElem = this.findMetadata(this.parsePath(subPath), opts.idAttr)
 			}
-			// If path[i] is a string that defines an array element "array[<number>]" then step into that array element.
-			else if (key && index >= 0 && id === undefined) {
-				cacheElem = cacheElem[key][index]
-				if (!cacheElem) break
-				if (opts.populate && cacheElem[opts.referencedPathAttr]) {
-					cacheElem = await this.get(
-						cacheElem[opts.referencedPathAttr],		// path to referenced element in the cache
-						opts
-					)
-				}
-				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
-					if (metadataElem[key][index].ttl < Date.now()) {
-						cacheElem = await this.fetchIfExpired(this.getSubPath(parsedPath,0,i+1), undefined, undefined, opts)
-					}
-					metadataElem = metadataElem[key][index]
-				}
-			}
-			// If path[i] was "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
-			else if (key && index === undefined && id) {
-				if (!cacheElem[key]) break
-				index = cacheElem[key].findIndex((el) => el[opts.idAttr] == id) // eslint-disable-line no-shadow
-				if (index === -1) break // if there is no element with a matching _id, then immideately try to query for the full path
-				cacheElem = cacheElem[key][index]
-				if (opts.populate && cacheElem[opts.referencedPathAttr]) {
-					cacheElem = await this.get(
-						cacheElem[opts.referencedPathAttr],		// path to referenced element in the cache
-						opts
-					)
-				}
-				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
-					if (metadataElem[key][index].ttl < Date.now()) {
-						cacheElem = await this.fetchIfExpired(this.getSubPath(parsedPath,0,i+1), undefined, undefined, opts)
-					}
-					metadataElem = metadataElem[key][index]
-				}
-			} else {
-				throw Error(`Invalid path element ${i}: ${JSON.stringify(path[i])}`)
+
+			// If cacheElem is a DBref, then (try to) populate it.
+			if (opts.populate && cacheElem[opts.referencedPathAttr]) {
+				const refPath = cacheElem[opts.referencedPathAttr]  // path to referenced element in the cache
+				cacheElem = await this.get(refPath, opts)
+				metadataElem = this.findMetadata(this.parsePath(refPath), opts.idAttr)
 			}
 		}
 
+		// Populate the last element, if it is a DBref and it will not be fetched again anyway.
+		if (cacheElem && !isExpired(ttl) && opts.callBackend !== this.FORCE_BACKEND_CALL &&
+				opts.populate && cacheElem[opts.referencedPathAttr]) {
+			cacheElem = await this.get(cacheElem[opts.referencedPathAttr], opts)
+		}
+
 		// Check if cacheElem is expired. Return it or fetch it from the backend if necessary or forced by options
-		// BUGFIX: Don't simply pass `path`. Instead pass the normalized path.
-		return this.fetchIfExpired(this.getSubPath(parsedPath,0,parsedPath.length), cacheElem, metadataElem, opts)
+		return this.fetchIfExpired(fullPath, cacheElem, { ttl }, opts)
 	}
 
 	/**
@@ -275,33 +223,28 @@ class PopulatingCache {
 	 *  - or when opts.callBackend === FORCE_BACKEND_CALL
 	 *
 	 * When the backend is called, then the returned value is also PUT() back into the cache
-	 * with and updated TTL.
+	 * with and updated TTL. With `opts.fetchCollection` an element `"key/id"` is fetched with its whole collection.
 	 *
 	 * @param {Array} path The full path to cacheElem
 	 * @param {Any} cacheElem the leaf element at the end of path or undefined if not in the cache yet
-	 * @param {Object} metadata metadata for cacheElem
+	 * @param {Object} metadata metadata for cacheElem. Only its (effective) `ttl` is used.
 	 * @param {Object} opts config options, including fetchFunc
 	 * @returns {Promise} resolves to cacheElem if it is not expired. Otherwise tries to query for value with fetchFunc().
-	 * @rejects When element is not in the cache and opts.callBackend === DO_NOT_CALL_BACKEND
+	 * @rejects When element is expired and opts.callBackend === DO_NOT_CALL_BACKEND
 	 */
 	async fetchIfExpired(path, cacheElem, metadata, opts) {
+		const expired = metadata ? isExpired(metadata.ttl) : false
 		switch(opts.callBackend) {
 		case this.FORCE_BACKEND_CALL:
-			return opts.fetchFunc(path).then((res) => {
-				this.put(path, res)  // update TTL
-				return res
-			})
+			return this.fetchAndPut(path, opts)
 		case this.DO_NOT_CALL_BACKEND:
-			if (metadata && metadata.ttl < Date.now()) {
+			if (expired) {
 				return Promise.reject(undefined)
 			}
 			return Promise.resolve(cacheElem)   // cacheElem may also be undefined.
 		default:
-			if (!cacheElem || metadata && metadata.ttl < Date.now()) {
-				return opts.fetchFunc(path).then((res) => {
-					this.put(path, res)
-					return res
-				})
+			if (!cacheElem || expired) {
+				return this.fetchAndPut(path, opts)
 			} else {
 				return Promise.resolve(cacheElem)
 			}
@@ -309,17 +252,42 @@ class PopulatingCache {
 	}
 
 	/**
+	 * Call `fetchFunc` and PUT the result into the cache. With `opts.fetchCollection` and a path that ends in `"key/id"`,
+	 * then fetchFunc is called for the whole collection `key` and the element with that id is returned (or undefined).
+	 * @param {Array|String} path path to the value that shall be fetched
+	 * @param {Object} opts config options, including fetchFunc
+	 * @returns {Promise} resolves to the fetched value
+	 */
+	async fetchAndPut(path, opts) {
+		const parsedPath = this.parsePath(path)
+		const last = parsedPath[parsedPath.length - 1]
+		if (opts.fetchCollection && last.id !== undefined) {
+			const collectionPath = [...this.getSubPath(parsedPath, 0, parsedPath.length - 1), last.key]
+			const list = await opts.fetchFunc(collectionPath)
+			if (!Array.isArray(list)) {
+				throw new Error(`fetchCollection: fetchFunc(${JSON.stringify(collectionPath)}) did not return an array.`)
+			}
+			this.put(collectionPath, list)
+			const idx = findIndexById(list, last.id, opts.idAttr)
+			return idx === -1 ? undefined : list[idx]
+		}
+		const res = await opts.fetchFunc(path)
+		this.put(path, res)
+		return res
+	}
+
+	/**
 	 * This is a synchrounous version of get(). getSync() does not return a Promise. It returns the value at path directly
 	 * if there is a valid value in the cache.
-	 * 
+	 *
 	 * getSync() will not call the backend It can only return values that already are in the cache.
-	 * 
+	 *
 	 * When there is a value in the cache, but it is expired, then there are two possible scenarios:
 	 * 1. Simply return null to the caller. (This is the default)
 	 * 2. Throw an Error. This way the caller can distinguish between not in the cache at all" or "expired value at that path"
-	 * 
+	 *
 	 * getSync() can do population, but only with values that already are in the cache.
-	 * 
+	 *
 	 * @param {Array} path path to value in cache
 	 * @param {Object} options optionally override configuration options  (callBackend is ignored in this method.)
 	 * @param {Boolean} throwWhenExpired should the method throw when path points to an expired element.
@@ -329,77 +297,31 @@ class PopulatingCache {
 	 *     Also throws when path is invalid.
 	 */
 	getSync(path, options, throwWhenExpired = false) {
-		let cacheElem = this.cacheData || {}
-		let metadataElem = this.cacheMetadata || {}
-		let opts = {...this.config, ...options}
+		let cacheElem = this.cacheData
+		let metadataElem = this.cacheMetadata
+		const opts = {...this.config, ...options}
 		const parsedPath = this.parsePath(path)
 
 		// Walk along path an try to find value at the end of path. (Without calling the backend).
 		for (let i = 0; i < parsedPath.length; i++) {
-			const key = parsedPath[i].key
-			const id = parsedPath[i].id
-			let   index = parsedPath[i].index
-
-			// If path[i] is a plain string, then step into that key.
-			if (key && index === undefined && id === undefined) {
-				cacheElem = cacheElem[key]
-				if (!cacheElem) return undefined
-				if (opts.populate && cacheElem[opts.referencedPathAttr]) {
-					cacheElem = this.getSync(cacheElem[opts.referencedPathAttr], opts)
-				}
-				if (metadataElem && metadataElem[key]) {
-					if (metadataElem[key].ttl < Date.now()) {
-						if (throwWhenExpired) { 
-							throw new Error("getSync(): The value at path " + JSON.stringify(path) + "is expired.") 
-						}	else { 
-							return undefined
-						}
-					}
-					metadataElem = metadataElem[key]
+			const step = stepInto(cacheElem, metadataElem, parsedPath[i], opts.idAttr)
+			cacheElem = step.value
+			metadataElem = step.metadata
+			if (!cacheElem) return undefined
+			if (isExpired(step.ttl)) {
+				if (throwWhenExpired) {
+					throw new Error("getSync(): The value at path " + JSON.stringify(path) + "is expired.")
+				}	else {
+					return undefined
 				}
 			}
-			// If path[i] is a string that defines an array element "array[<number>]" then step into that array element.
-			else if (key && index >= 0 && id === undefined) {
-				cacheElem = cacheElem[key][index]
-				if (!cacheElem) return undefined
-				if (opts.populate && cacheElem[opts.referencedPathAttr]) {
-					cacheElem = this.getSync(cacheElem[opts.referencedPathAttr], opts)
-				}
-				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
-					if (metadataElem[key].ttl < Date.now()) {
-						if (throwWhenExpired) { 
-							throw new Error("getSync(): The value at path " + JSON.stringify(path) + "is expired.") 
-						}	else { 
-							return undefined
-						}
-					}
-					metadataElem = metadataElem[key][index]
-				}
-			}
-			// If path[i] was "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
-			else if (key && index === undefined && id) {
-				if (!cacheElem[key]) return undefined
-				index = cacheElem[key].findIndex((el) => el[opts.idAttr] == id) // eslint-disable-line no-shadow
-				if (index === -1) return undefined
-				cacheElem = cacheElem[key][index]
-				if (opts.populate && cacheElem[opts.referencedPathAttr]) {
-					cacheElem = this.getSync(cacheElem[opts.referencedPathAttr], opts)
-				}
-				if (metadataElem && metadataElem[key] && metadataElem[key][index]) {
-					if (metadataElem[key].ttl < Date.now()) {
-						if (throwWhenExpired) { 
-							throw new Error("getSync(): The value at path " + JSON.stringify(path) + "is expired.") 
-						}	else { 
-							return undefined
-						}
-					}
-					metadataElem = metadataElem[key][index]
-				}
-			} else {
-				throw Error(`Invalid path element ${i}: ${JSON.stringify(path[i])}`)
+			if (opts.populate && cacheElem[opts.referencedPathAttr]) {
+				const refPath = cacheElem[opts.referencedPathAttr]
+				cacheElem = this.getSync(refPath, opts, throwWhenExpired)
+				metadataElem = this.findMetadata(this.parsePath(refPath), opts.idAttr)
 			}
 		}
-		
+
 		return cacheElem   // my still be undefined
 	}
 
@@ -523,7 +445,30 @@ class PopulatingCache {
 	 * @param {Array} path path to the element that shall be deleted
 	 */
 	delete(path) {
-		this.put(path, undefined, -1)
+		const parsedPath = this.parsePath(path)
+		const last = parsedPath[parsedPath.length - 1]
+		if (last.appendArray) throw new Error('"array[]" is not allowed in delete(). Delete the whole array or one element of it.')
+		let cacheElem = this.cacheData
+		let metadataElem = this.cacheMetadata
+		for (let i = 0; i < parsedPath.length - 1 && cacheElem; i++) {
+			const step = stepInto(cacheElem, metadataElem, parsedPath[i], this.config.idAttr)
+			cacheElem = step.value
+			metadataElem = step.metadata
+		}
+		if (cacheElem && typeof cacheElem === "object") {
+			if (last.index === undefined && last.id === undefined) {
+				delete cacheElem[last.key]
+				if (metadataElem) delete metadataElem[last.key]
+			} else {
+				// Set the array element and its metadata to undefined, so that the length of the array does not change.
+				const step = stepInto(cacheElem, metadataElem, last, this.config.idAttr)
+				if (step.index !== undefined) {
+					cacheElem[last.key][step.index] = undefined
+					if (step.collection && Array.isArray(step.collection.$elems)) step.collection.$elems[step.index] = undefined
+				}
+			}
+		}
+		this.firePutEvent(path, undefined, parsedPath)
 	}
 	
 	/**
@@ -558,38 +503,36 @@ class PopulatingCache {
 	 * creates a second parallel tree of metadata next to the `cacheData`.
 	 * The metadata contains the time to life (TTL) of the value in the cache.
 	 * `ttl` is the number of milliseconds since the epoc, when a value will expire.
+	 *
+	 * The metadata of a collection (array) has its own `ttl` and `type` and an array `$elems`
+	 * with one metadata entry per element, index by index: `{ ttl, type, $elems: [ { _id, ttl, type }, … ] }`.
+	 * The names `ttl`, `type` and `$elems` are reserved.
+	 *
+	 * Returns the metadata node as it is stored, i.e. an element without an own entry or `ttl` has none here.
+	 * (`get()` then falls back to the `ttl` of the collection.)
+	 *
 	 * @param {Array} path fetch metadata of a specific element. If null or undefind, then all metadata of the whole cache is returned.
 	 * @returns {Object} metadata of cached value under path, e.g. { ttl: 55235325000, type: "Integer"}
 	 */
 	getMetadata(path) {
 		if (!path) return this.cacheMetadata
-		let metadataElem = this.cacheMetadata || {}
-		const parsedPath = this.parsePath(path)
+		return this.findMetadata(this.parsePath(path), this.config.idAttr)
+	}
 
-		// Walk along path and insert intermediate objects as necessary
+	/**
+	 * Walk along parsedPath through the cache and its metadata in parallel and return the metadata node at the end of it.
+	 * @param {Array} parsedPath normalized path as returned by `parsePath()`
+	 * @param {String} idAttr name of the id attribute
+	 * @returns {Object} metadata node at the end of parsedPath or undefined
+	 */
+	findMetadata(parsedPath, idAttr) {
+		let cacheElem = this.cacheData
+		let metadataElem = this.cacheMetadata
 		for (let i = 0; i < parsedPath.length; i++) {
-			const key = parsedPath[i].key
-			const id = parsedPath[i].id
-			const index = parsedPath[i].index
-			if (!metadataElem || !metadataElem[key]) return undefined
-
-			// If path[i] is a plain string, then step into that key.
-			if (key && index === undefined && id === undefined) {
-				metadataElem = metadataElem[key]
-			}
-			// If path[i] is a string that defines an array element "key[<number>]" then step into that array element.
-			else if (key && index >= 0 && id === undefined) {
-				metadataElem = metadataElem[key][index]
-			}
-			// If path[i] was "key/id" or {key:id}, then find the element from "key"-array with a matching _id and step into it.
-			else if (key && index === undefined && id) {
-				const index = metadataElem[key].findIndex((e) => e[this.config.idAttr] === id)
-				// if there is no metadataElem with a matching _id, then immideately return undefined
-				if (index === -1) return undefined 				
-				metadataElem = metadataElem[key][index]
-			} else {
-				throw Error(`Invalid path element ${i}: ${JSON.stringify(path[i])}`)
-			}
+			const step = stepInto(cacheElem, metadataElem, parsedPath[i], idAttr)
+			cacheElem = step.value
+			metadataElem = step.metadata
+			if (metadataElem === undefined) return undefined
 		}
 		return metadataElem
 	}
@@ -737,22 +680,132 @@ class PopulatingCache {
 
 // ======== private methods ==========
 
+/**
+ * Name of the metadata property of a collection that holds the metadata of its elements, index by index.
+ * Together with `ttl` and `type` this is a reserved name in the metadata tree.
+ */
+const ELEMS = "$elems"
+
+/** Two ids are the same, when their string representations are equal. "5" and 5 are the same id. */
+const sameId = (a, b) => a !== undefined && a !== null && b !== undefined && b !== null && String(a) === String(b)
+
+/** A TTL is expired, when it is defined and in the past. Values without a TTL never expire. */
+const isExpired = (ttl) => ttl !== undefined && ttl < Date.now()
+
+const findIndexById = (array, id, idAttr) => array.findIndex(el => el !== undefined && el !== null && sameId(el[idAttr], id))
+
+/** The effective TTL of an array element: its own TTL, else the TTL of its collection */
+const effectiveTtl = (collectionMeta, elemMeta) => {
+	if (elemMeta && elemMeta.ttl !== undefined) return elemMeta.ttl
+	return collectionMeta ? collectionMeta.ttl : undefined
+}
+
+/** Merge value into oldValue if opts.merge is set and both are (non array) objects */
+const mergeValue = (oldValue, value, opts) => {
+	if (opts.merge && value && typeof value === "object" && !Array.isArray(value) && !Array.isArray(oldValue)) {
+		return { ...oldValue, ...value }
+	}
+	return value
+}
+
+/** Create the metadata for a value. Arrays also get one entry per element in `$elems`. */
+const createMetadata = (value, opts, ttl) => {
+	const metadata = { ttl, type: typeof value }
+	if (Array.isArray(value)) metadata[ELEMS] = value.map(el => createElemMetadata(el, opts, ttl))
+	return metadata
+}
+
+/** Create the metadata entry for an array element. It also contains the element's id, if it has one. */
+const createElemMetadata = (value, opts, ttl, id) => {
+	const elemId = value && typeof value === "object" && value[opts.idAttr] !== undefined ? value[opts.idAttr] : id
+	const metadata = createMetadata(value, opts, ttl)
+	return elemId === undefined ? metadata : { [opts.idAttr]: elemId, ...metadata }
+}
+
+/** Get the array under key from the cache. Create it if necessary. Throws if there is something else under key. */
+const cachedArray = (cacheParent, key, path) => {
+	if (cacheParent[key] === undefined || cacheParent[key] === null) cacheParent[key] = []
+	if (!Array.isArray(cacheParent[key])) {
+		throw new Error(`Cannot PUT ${JSON.stringify(path)}. "${key}" in the cache is not an array.`)
+	}
+	return cacheParent[key]
+}
+
+/**
+ * Get the metadata node of a collection under key. Create it as `{ $elems: [] }` (without an own TTL) if necessary.
+ * An existing TTL of the collection is kept.
+ */
+const collectionMetadata = (metadataParent, key) => {
+	let node = metadataParent[key]
+	if (!node || typeof node !== "object" || Array.isArray(node)) {
+		node = metadataParent[key] = { [ELEMS]: [] }
+	} else if (!Array.isArray(node[ELEMS])) {
+		node[ELEMS] = []
+	}
+	return node
+}
+
+/**
+ * Step one level down in the cache and in the parallel metadata tree. This does not change anything.
+ * @param {Any} cacheElem current element in the cache
+ * @param {Object} metadataElem metadata node of cacheElem (may be undefined)
+ * @param {Object} pathElem one element of a parsed path: { key, id, index }
+ * @param {String} idAttr name of the id attribute
+ * @returns {Object} `{ value, metadata, ttl, index, collection }`
+ *   - value: the child element (undefined if not in the cache)
+ *   - metadata: the child's own metadata node
+ *   - ttl: the child's effective TTL. For array elements its own ttl, else the ttl of its collection.
+ *   - index: the array index of the child (only for array elements)
+ *   - collection: the metadata node of the collection (only for array elements)
+ */
+const stepInto = (cacheElem, metadataElem, pathElem, idAttr) => {
+	const { key, id, index } = pathElem
+	if (cacheElem === undefined || cacheElem === null) return {}
+	const parentMeta = metadataElem && typeof metadataElem === "object" ? metadataElem : undefined
+	if (index === undefined && id === undefined) {
+		const metadata = parentMeta ? parentMeta[key] : undefined
+		return { value: cacheElem[key], metadata, ttl: metadata ? metadata.ttl : undefined }
+	}
+	const array = cacheElem[key]
+	const collection = parentMeta ? parentMeta[key] : undefined
+	if (!Array.isArray(array)) return { collection }
+	const idx = id !== undefined ? findIndexById(array, id, idAttr) : index
+	if (idx < 0 || idx >= array.length) return { collection }
+	const metadata = collection && Array.isArray(collection[ELEMS]) ? collection[ELEMS][idx] : undefined
+	return { value: array[idx], metadata, ttl: effectiveTtl(collection, metadata), index: idx, collection }
+}
+
+/**
+ * Recursively delete expired elements.
+ * An expired array element is set to undefined (the array keeps its length) and so is its entry in `$elems`.
+ * When a collection is expired, then only its elements without a fresh TTL of their own are removed.
+ * If none of its elements are left, then the collection is deleted completely.
+ */
 let deleteExpiredElemsRec = function(elem, metadata) {
-	if (!elem) return
+	if (!elem || typeof elem !== "object" || !metadata || typeof metadata !== "object") return
 	if (Array.isArray(elem)) {
+		const elems = Array.isArray(metadata[ELEMS]) ? metadata[ELEMS] : []
 		for (let i = 0; i < elem.length; i++) {
-			const childMetadata = metadata ? metadata[i] : {}
-			if (childMetadata.ttl < Date.now()) {
+			const elemMeta = elems[i]
+			if (isExpired(effectiveTtl(metadata, elemMeta))) {
 				elem[i] = undefined  // set array element to undefined, but keep array
-				metadata[i] = undefined
+				if (elemMeta) elems[i] = undefined
 			} else {
-				deleteExpiredElemsRec(elem[i], childMetadata)
+				deleteExpiredElemsRec(elem[i], elemMeta)
 			}
 		}
-	} else if (typeof elem === "object") {
+	} else {
 		for (const key in elem) {
-			const childMetadata = metadata[key] || {}
-			if (childMetadata.ttl < Date.now()) {
+			const childMetadata = metadata[key]
+			if (!childMetadata) continue
+			if (Array.isArray(elem[key])) {
+				// Elements with a fresh TTL of their own outlive their expired collection.
+				deleteExpiredElemsRec(elem[key], childMetadata)
+				if (isExpired(childMetadata.ttl) && elem[key].every(el => el === undefined)) {
+					delete elem[key]
+					delete metadata[key]
+				}
+			} else if (isExpired(childMetadata.ttl)) {
 				delete elem[key]		// delete object property completely
 				delete metadata[key]
 			} else {
@@ -777,6 +830,10 @@ const DEFAULT_CONFIG = {
 
 	// Call backend when value in cache is expired (or not there at all)
 	callBackend: 0, // = PopulatingCache.CALL_BACKEND_WHEN_EXPIRED
+
+	// When an element "key/id" must be fetched from the backend, then fetch its whole collection instead:
+	// fetchFunc(["key"]) is called, the returned array is PUT into the cache and the element with that id is returned.
+	fetchCollection: false,
 
 	//TODO: Should get() return cloned values or direct references to the attribute from the cache
 	returnClones: false,

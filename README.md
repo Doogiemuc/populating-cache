@@ -152,6 +152,65 @@ Since the `user` element is already expired, this will call `fetchFunc`. The `pa
   return parsedSubPath
 ```
 
+### TTL of a collection and of each of its elements
+
+An array in the cache (a *collection*) has a TTL of its own, and each of its elements has one, too.
+So you can cache a whole list *and* refresh single elements of it:
+
+```javascript
+cache.put("polls", listOfPolls)          // TTL of the list and of every poll in it
+cache.put("polls/5", poll5)              // only refreshes the TTL of poll 5. The list's TTL is untouched.
+cache.put("polls[]", newPoll)            // appends a poll with its own TTL
+```
+
+When checking if something is expired, **the most specific TTL wins**:
+
+| Path | Expires with |
+|------|--------------|
+| an element, e.g. `"polls/5"` or `"polls[0]"` | its own TTL. If it has none, then the TTL of its collection. If that has none either, it never expires. |
+| the collection, e.g. `"polls"` | only its own TTL |
+
+So poll 5 that was refreshed on its own outlives the list: `get("polls/5")` returns it from the cache, while `get("polls")` already calls the backend.
+
+A collection that was only built up from single elements (`put("polls/5", …)`, `put("polls[]", …)`) has no TTL of its own and therefore
+`get("polls")` will not call the backend for it. Put the whole list once, if you want the list to expire.
+
+### Fetch an element with its whole collection: `fetchCollection`
+
+Often your backend can deliver the whole list in one call. Then set the option `fetchCollection: true`, in the config or for one call to `get`:
+
+```javascript
+const poll = await cache.get("polls/5", { fetchCollection: true })
+```
+
+When poll 5 is not in the cache or expired, then `fetchFunc(["polls"])` is called *instead of* `fetchFunc([{polls: 5}])`.
+The returned array is put into the cache under `"polls"` (with a fresh TTL for the list and every poll in it) and the poll with `_id` 5 is returned.
+If the new list does not contain that id, then `get` resolves to `undefined`. One backend call refreshes all polls.
+`fetchFunc` must resolve to an array in this case, otherwise `get` rejects.
+
+### Metadata
+
+Next to the cached values, populating-cache keeps a parallel tree of metadata. You can inspect it with `getMetadata(path)`.
+A value has `{ ttl, type }`. A collection additionally has `$elems`, which runs in parallel to the cached array, index by index:
+
+```javascript
+cache.getMetadata("polls")
+// {
+//   ttl: 1700000060000,  type: "object",
+//   $elems: [
+//     { _id: 5, ttl: 1700000090000, type: "object" },   // refreshed on its own
+//     { _id: 7, ttl: 1700000060000, type: "object" },
+//   ]
+// }
+cache.getMetadata("polls/5")              // { _id: 5, ttl: 1700000090000, type: "object" }
+cache.getMetadata("polls/5.proposals")    // metadata of values below an element are stored inside its entry
+```
+
+The names `ttl`, `type` and `$elems` are reserved in the metadata. `getMetadata` returns the nodes as they are stored, without the fallback to the collection's TTL.
+
+`deleteExpiredElems()` sets expired array elements (and their entry in `$elems`) to `undefined`, so arrays keep their length.
+When a collection is expired, then only its elements without a fresh TTL of their own are removed. If none are left, the collection is deleted completely.
+
  
 
 ## Populate DB references (DBref)
@@ -280,6 +339,7 @@ put(["posts/4711", "comments/42"], {baz:"boo"}, {merge:true})
 ```
 
 Object IDs can be numeric or alphanumeric UUIDs. The name of the `_id` property can be configured.
+IDs are compared by their string value, so `"polls/5"`, `{polls: 5}` and `{polls: "5"}` all address the element with `_id: 5` or `_id: "5"`.
 
 # TESTs
 
@@ -423,13 +483,14 @@ The cacheData is exactly as returned by `fetchFunc(path)`
 While you `put` values into the cache, Populating-Cache automatically
 creates a second parallel tree of metadata next to the `cacheData`.
 The metadata contains the time to life (TTL) of the value in the cache.
-`_ttl` is the number of milliseconds since the epoc, when the value expires.
+`ttl` is the number of milliseconds since the epoc, when the value expires.
+The metadata of a collection is `{ ttl, type, $elems: [ { _id, ttl, type }, … ] }`, see [Metadata](#metadata).
 
 #### Parameters
 
 -   `path` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** fetch metadata of a specific element. If null or undefind, that all metadata of the whole cache is returned.
 
-Returns **[Object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** metadata of cached value under path, e.g. { \_ttl: 55235325000, \_type: "Integer"}
+Returns **[Object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** metadata of cached value under path, e.g. { ttl: 55235325000, type: "number"}
 
 ### emptyCache
 
